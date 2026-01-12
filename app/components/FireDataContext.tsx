@@ -28,12 +28,14 @@ interface FireDataContextType {
   data: FireGeoJSON;
   loading: boolean;
   lastUpdate: Date | null;
+  refresh: () => Promise<void>;
 }
 
 const FireDataContext = createContext<FireDataContextType>({
   data: { type: "FeatureCollection", features: [] },
   loading: true,
   lastUpdate: null,
+  refresh: async () => {},
 });
 
 export function FireDataProvider({ children }: { children: ReactNode }) {
@@ -41,30 +43,46 @@ export function FireDataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
+  const fetchData = async () => {
+    try {
+      const response = await fetch("/api/firms/points?days=5");
+      if (!response.ok) throw new Error("Error al cargar datos");
+      const jsonData: FireGeoJSON = await response.json();
+      setData(jsonData);
+      setLastUpdate(new Date());
+    } catch (error) {
+      console.error("Error fetching fire data:", error);
+      setData({ type: "FeatureCollection", features: [] });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch("/api/firms/points?days=5");
-        if (!response.ok) throw new Error("Error al cargar datos");
-        const jsonData: FireGeoJSON = await response.json();
-        setData(jsonData);
-        setLastUpdate(new Date());
-      } catch (error) {
-        console.error("Error fetching fire data:", error);
-        setData({ type: "FeatureCollection", features: [] });
-      } finally {
-        setLoading(false);
+    fetchData();
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        fetchData();
+      }
+    }, 300000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        fetchData();
       }
     };
 
-    fetchData();
-    const interval = setInterval(fetchData, 60000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   return (
-    <FireDataContext.Provider value={{ data, loading, lastUpdate }}>
+    <FireDataContext.Provider value={{ data, loading, lastUpdate, refresh: fetchData }}>
       {children}
     </FireDataContext.Provider>
   );

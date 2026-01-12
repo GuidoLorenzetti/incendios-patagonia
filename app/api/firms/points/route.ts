@@ -1,5 +1,34 @@
 import { NextRequest } from "next/server";
 
+interface CacheEntry {
+  data: { type: "FeatureCollection"; features: any[] };
+  expiresAt: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 180000;
+
+function getCacheKey(bbox: string, sources: string[], dayRange: string): string {
+  return `${bbox}|${sources.join(",")}|${dayRange}`;
+}
+
+function getCached(key: string): { type: "FeatureCollection"; features: any[] } | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key: string, data: { type: "FeatureCollection"; features: any[] }): void {
+  cache.set(key, {
+    data,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  });
+}
+
 function csvToGeoJSON(csvText: string, sourceName: string) {
   const lines = csvText.trim().split("\n");
   if (lines.length < 2) return { type: "FeatureCollection", features: [] };
@@ -96,6 +125,12 @@ export async function GET(req: NextRequest) {
     : ["VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT"];
 
   const bbox = `${west},${south},${east},${north}`;
+  const cacheKey = getCacheKey(bbox, sources, dayRange);
+
+  const cached = getCached(cacheKey);
+  if (cached) {
+    return Response.json(cached);
+  }
 
   const results = await Promise.all(
     sources.map((source) => fetchSource(key, source, bbox, dayRange))
@@ -103,8 +138,12 @@ export async function GET(req: NextRequest) {
 
   const allFeatures = results.flatMap((result) => result.features);
 
-  return Response.json({
+  const response = {
     type: "FeatureCollection",
     features: allFeatures,
-  });
+  };
+
+  setCache(cacheKey, response);
+
+  return Response.json(response);
 }

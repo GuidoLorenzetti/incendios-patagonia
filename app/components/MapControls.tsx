@@ -17,9 +17,19 @@ export default function MapControls({
   onTimeRangeChange,
   lastDetection,
 }: MapControlsProps) {
-  const { data } = useFireData();
+  const { data, refresh } = useFireData();
   const [isMobile, setIsMobile] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const allRanges: TimeRange[] = ["6h", "12h", "24h", "48h", "7d"];
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     const checkMobile = () => {
@@ -110,6 +120,26 @@ export default function MapControls({
               {getRangeLabel(range)}
             </button>
           ))}
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            style={{
+              padding: isMobile ? "6px 8px" : "6px 12px",
+              border: "1px solid #e8eaed",
+              borderRadius: "4px",
+              background: isRefreshing ? "#f1f3f4" : "white",
+              color: isRefreshing ? "#999" : "#202124",
+              cursor: isRefreshing ? "not-allowed" : "pointer",
+              fontSize: isMobile ? "11px" : "13px",
+              fontWeight: "500",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            }}
+            title="Actualizar datos ahora"
+          >
+            {isRefreshing ? "⟳" : "↻"} {isMobile ? "" : "Actualizar"}
+          </button>
         </div>
       )}
 
