@@ -124,12 +124,38 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
 
     updateLayer();
 
-    const handleZoom = () => {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      typeof navigator !== "undefined" ? navigator.userAgent : ""
+    );
+
+    let updateTimeout: NodeJS.Timeout | null = null;
+    let lastUpdate = 0;
+    const throttleMs = isMobile ? 200 : 0;
+
+    const handleUpdate = () => {
+      if (isMobile) {
+        const now = Date.now();
+        if (now - lastUpdate < throttleMs) {
+          if (updateTimeout) {
+            clearTimeout(updateTimeout);
+          }
+          updateTimeout = setTimeout(() => {
+            updateLayer();
+            lastUpdate = Date.now();
+          }, throttleMs - (now - lastUpdate));
+          return;
+        }
+        lastUpdate = now;
+      }
       updateLayer();
     };
 
+    const handleZoom = () => {
+      handleUpdate();
+    };
+
     const handleMove = () => {
-      updateLayer();
+      handleUpdate();
     };
 
     map.on("zoom", handleZoom);
@@ -138,6 +164,9 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
     map.on("movestart", handleMove);
 
     return () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
       map.off("zoom", handleZoom);
       map.off("move", handleMove);
       map.off("zoomstart", handleZoom);
