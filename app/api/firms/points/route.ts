@@ -29,7 +29,7 @@ function setCache(key: string, data: { type: "FeatureCollection"; features: any[
   });
 }
 
-function csvToGeoJSON(csvText: string, sourceName: string) {
+function csvToGeoJSON(csvText: string, sourceName: string): { type: "FeatureCollection"; features: any[] } {
   const lines = csvText.trim().split("\n");
   if (lines.length < 2) return { type: "FeatureCollection", features: [] };
 
