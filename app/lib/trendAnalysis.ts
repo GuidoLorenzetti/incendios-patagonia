@@ -1,9 +1,12 @@
 import { FireEvent } from "./clustering";
 import { parseFirmsUtc, getTimeRangeMs } from "./time";
 
+export type TimeRange = "6h" | "12h" | "24h" | "48h" | "7d";
+
 export function analyzeTrends(
-  events48h: FireEvent[],
-  allFeatures: any[]
+  events: FireEvent[],
+  allFeatures: any[],
+  timeRange: TimeRange
 ): FireEvent[] {
   const nowUtc = new Date();
   const cutoff24h = nowUtc.getTime() - getTimeRangeMs("24h");
@@ -21,7 +24,7 @@ export function analyzeTrends(
     return dateUtc.getTime() >= cutoff48h && dateUtc.getTime() < cutoff24h;
   });
 
-  return events48h.map((event) => {
+  return events.map((event) => {
     const [lat, lon] = event.centroid;
     const eventRadius = 1500;
 
@@ -50,6 +53,15 @@ export function analyzeTrends(
       return sum + frp;
     }, 0);
 
+    const latestTimestamp24h = points24h.length > 0
+      ? Math.max(...points24h.map((f) => {
+          const dateUtc = parseFirmsUtc(f.properties.acq_date!, f.properties.acq_time!);
+          return dateUtc.getTime();
+        }))
+      : 0;
+
+    const lastSeenUtcMs = Math.max(event.lastSeenUtcMs, latestTimestamp24h);
+
     let trend: "creciente" | "decreciente" | "estable" | "extinto" = "estable";
     
     if (frp24h === 0 && count24h === 0 && (frp24h_48h > 0 || count24h_48h > 0)) {
@@ -76,6 +88,7 @@ export function analyzeTrends(
       count24h: count24h,
       frp24h: frp24h,
       frp24h_48h: frp24h_48h,
+      lastSeenUtcMs,
     };
   });
 }

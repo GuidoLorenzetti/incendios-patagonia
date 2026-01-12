@@ -110,9 +110,30 @@ export function buildEvents(features: any[]): FireEvent[] {
     return { lat, lon, frp, confidence, ts };
   });
 
-  const clusters = dbscan(points, 1500, 4);
+  const clusters = dbscan(points, 1500, 1);
+  const clusteredIndices = new Set(clusters.flat());
 
-  const events: FireEvent[] = clusters.map((cluster, idx) => {
+  const isolatedPoints: number[] = [];
+  for (let i = 0; i < points.length; i++) {
+    if (clusteredIndices.has(i)) continue;
+    
+    let minDistance = Infinity;
+    for (let j = 0; j < points.length; j++) {
+      if (i === j) continue;
+      const dist = haversineMeters(points[i].lat, points[i].lon, points[j].lat, points[j].lon);
+      if (dist < minDistance) {
+        minDistance = dist;
+      }
+    }
+    
+    if (minDistance > 3000) {
+      isolatedPoints.push(i);
+    }
+  }
+
+  const allEventIndices = [...clusters, ...isolatedPoints.map((idx) => [idx])];
+
+  const events: FireEvent[] = allEventIndices.map((cluster, idx) => {
     const clusterPoints = cluster.map((i) => points[i]);
     
     const frpSum = clusterPoints.reduce((sum, p) => sum + p.frp, 0);

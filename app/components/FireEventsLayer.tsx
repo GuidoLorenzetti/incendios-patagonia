@@ -36,14 +36,14 @@ interface FireEventsLayerProps {
   onEventsChange?: (events: FireEvent[]) => void;
 }
 
-export default function FireEventsLayer({ visible, timeRange: _timeRange, onEventsChange }: FireEventsLayerProps) {
+export default function FireEventsLayer({ visible, timeRange, onEventsChange }: FireEventsLayerProps) {
   const { data } = useFireData();
 
   const events = useMemo(() => {
-    const filtered48h = filterByTimeRange(data.features, "48h");
-    const eventsList = buildEvents(filtered48h);
+    const filteredByRange = filterByTimeRange(data.features, timeRange);
+    const eventsList = buildEvents(filteredByRange);
     
-    const eventsWithTrends = analyzeTrends(eventsList, data.features);
+    const eventsWithTrends = analyzeTrends(eventsList, data.features, timeRange);
     
     const eventsWithNames = eventsWithTrends.map((event) => {
       const [lat, lon] = event.centroid;
@@ -77,7 +77,7 @@ export default function FireEventsLayer({ visible, timeRange: _timeRange, onEven
     });
 
     return eventsWithNumberedNames;
-  }, [data]);
+  }, [data, timeRange]);
 
   useEffect(() => {
     if (onEventsChange) {
@@ -124,22 +124,22 @@ export default function FireEventsLayer({ visible, timeRange: _timeRange, onEven
               )}
               <br />
               <br />
-              <strong>Detecciones (48h):</strong> {event.count}
+              <strong>Detecciones ({timeRange}):</strong> {event.count}
               {event.count24h !== undefined && event.historicalCount !== undefined && (
                 <>
                   <br />
-                  <strong>Detecciones últimas 24h:</strong> {event.count24h}
+                  <strong>Detecciones últimas {timeRange}:</strong> {event.count24h}
                   <br />
-                  <strong>Detecciones (24h-48h):</strong> {event.historicalCount}
+                  <strong>Detecciones ({timeRange} anteriores):</strong> {event.historicalCount}
                 </>
               )}
               {event.frp24h !== undefined && event.frp24h_48h !== undefined && (
                 <>
                   <br />
                   <br />
-                  <strong>FRP últimas 24h:</strong> {event.frp24h.toFixed(1)}
+                  <strong>FRP últimas {timeRange}:</strong> {event.frp24h.toFixed(1)}
                   <br />
-                  <strong>FRP (24h-48h):</strong> {event.frp24h_48h.toFixed(1)}
+                  <strong>FRP ({timeRange} anteriores):</strong> {event.frp24h_48h.toFixed(1)}
                 </>
               )}
               <br />
