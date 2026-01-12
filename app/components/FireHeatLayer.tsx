@@ -29,6 +29,14 @@ interface FireHeatLayerProps {
   timeRange: TimeRange;
 }
 
+interface HeatLayerOptions {
+  radius?: number;
+  blur?: number;
+  maxZoom?: number;
+  minOpacity?: number;
+  gradient?: Record<number, string>;
+}
+
 export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps) {
   const map = useMap();
   const heatLayerRef = useRef<L.Layer | null>(null);
@@ -45,7 +53,7 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
       return;
     }
 
-    let heatLayerFn: ((points: [number, number, number][], options?: { radius?: number; blur?: number; maxZoom?: number }) => L.Layer) | undefined;
+    let heatLayerFn: ((points: [number, number, number][], options?: HeatLayerOptions) => L.Layer) | undefined;
 
     try {
       require("leaflet.heat");
@@ -58,47 +66,70 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
 
     const updateLayer = () => {
       const filtered = filterByTimeRange(data.features, timeRange);
+      
+      if (filtered.length === 0) {
+        if (heatLayerRef.current) {
+          map.removeLayer(heatLayerRef.current);
+          heatLayerRef.current = null;
+        }
+        return;
+      }
+
+      const frpValues = filtered
+        .map((f) => (f.properties.frp ? Number(f.properties.frp) : 0))
+        .filter((v) => v > 0);
+      
+      const maxFrp = frpValues.length > 0 ? Math.max(...frpValues) : 1;
+      const minFrp = frpValues.length > 0 ? Math.min(...frpValues) : 0;
+
       const points: [number, number, number][] = filtered.map((feature) => {
         const [lon, lat] = feature.geometry.coordinates;
-        const frp = feature.properties.frp ? Number(feature.properties.frp) : 1;
-        return [lat, lon, frp];
+        const frp = feature.properties.frp ? Number(feature.properties.frp) : 0;
+        const normalizedFrp = maxFrp > minFrp 
+          ? ((frp - minFrp) / (maxFrp - minFrp)) * 100 + 10
+          : 10;
+        return [lat, lon, Math.max(1, normalizedFrp)];
       });
+
+      const currentZoom = map.getZoom();
+      
+      const radius = Math.max(15, Math.min(40, 20 + (currentZoom - 9) * 3));
+      const blur = Math.max(12, Math.min(25, 15 + (currentZoom - 9) * 2));
 
       if (heatLayerRef.current) {
         map.removeLayer(heatLayerRef.current);
         heatLayerRef.current = null;
       }
 
-      if (points.length > 0) {
-        const layer = heatLayerFn(points, {
-          radius: 25,
-          blur: 18,
-          maxZoom: 12,
-        });
+      const gradient: Record<number, string> = {
+        0.0: "rgba(255, 255, 0, 0)",
+        0.2: "rgba(255, 200, 0, 0.3)",
+        0.4: "rgba(255, 150, 0, 0.5)",
+        0.6: "rgba(255, 100, 0, 0.7)",
+        0.8: "rgba(255, 50, 0, 0.85)",
+        1.0: "rgba(255, 0, 0, 1)",
+      };
 
-        layer.addTo(map);
-        heatLayerRef.current = layer;
-      }
+      const layer = heatLayerFn(points, {
+        radius,
+        blur,
+        maxZoom: 18,
+        minOpacity: 0.2,
+        gradient,
+      });
+
+      layer.addTo(map);
+      heatLayerRef.current = layer;
     };
 
     updateLayer();
 
-    let updateTimeout: NodeJS.Timeout | null = null;
-    const debouncedUpdate = () => {
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
-      updateTimeout = setTimeout(() => {
-        updateLayer();
-      }, 50);
-    };
-
     const handleZoom = () => {
-      debouncedUpdate();
+      updateLayer();
     };
 
     const handleMove = () => {
-      debouncedUpdate();
+      updateLayer();
     };
 
     map.on("zoom", handleZoom);
@@ -107,9 +138,6 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
     map.on("movestart", handleMove);
 
     return () => {
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
       map.off("zoom", handleZoom);
       map.off("move", handleMove);
       map.off("zoomstart", handleZoom);
