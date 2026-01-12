@@ -128,34 +128,34 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
       typeof navigator !== "undefined" ? navigator.userAgent : ""
     );
 
-    let updateTimeout: NodeJS.Timeout | null = null;
-    let lastUpdate = 0;
-    const throttleMs = isMobile ? 200 : 0;
+    if (isMobile) {
+      const handleZoomEnd = () => {
+        updateLayer();
+      };
 
-    const handleUpdate = () => {
-      if (isMobile) {
-        const now = Date.now();
-        if (now - lastUpdate < throttleMs) {
-          if (updateTimeout) {
-            clearTimeout(updateTimeout);
-          }
-          updateTimeout = setTimeout(() => {
-            updateLayer();
-            lastUpdate = Date.now();
-          }, throttleMs - (now - lastUpdate));
-          return;
+      const handleMoveEnd = () => {
+        updateLayer();
+      };
+
+      map.on("zoomend", handleZoomEnd);
+      map.on("moveend", handleMoveEnd);
+
+      return () => {
+        map.off("zoomend", handleZoomEnd);
+        map.off("moveend", handleMoveEnd);
+        if (heatLayerRef.current) {
+          map.removeLayer(heatLayerRef.current);
+          heatLayerRef.current = null;
         }
-        lastUpdate = now;
-      }
+      };
+    }
+
+    const handleZoom = () => {
       updateLayer();
     };
 
-    const handleZoom = () => {
-      handleUpdate();
-    };
-
     const handleMove = () => {
-      handleUpdate();
+      updateLayer();
     };
 
     map.on("zoom", handleZoom);
@@ -164,9 +164,6 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
     map.on("movestart", handleMove);
 
     return () => {
-      if (updateTimeout) {
-        clearTimeout(updateTimeout);
-      }
       map.off("zoom", handleZoom);
       map.off("move", handleMove);
       map.off("zoomstart", handleZoom);
