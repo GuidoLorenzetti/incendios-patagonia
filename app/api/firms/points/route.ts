@@ -138,7 +138,7 @@ export async function GET(req: NextRequest) {
 
   const allFeatures = results.flatMap((result) => result.features);
 
-  const response = {
+  const response: { type: "FeatureCollection"; features: any[] } = {
     type: "FeatureCollection",
     features: allFeatures,
   };
