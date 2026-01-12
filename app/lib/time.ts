@@ -1,0 +1,84 @@
+export function parseFirmsUtc(acq_date: string, acq_time: string): Date {
+  const timePadded = acq_time.padStart(4, "0");
+  const year = parseInt(acq_date.substring(0, 4));
+  const month = parseInt(acq_date.substring(5, 7)) - 1;
+  const day = parseInt(acq_date.substring(8, 10));
+  const hour = parseInt(timePadded.substring(0, 2));
+  const minute = parseInt(timePadded.substring(2, 4));
+  return new Date(Date.UTC(year, month, day, hour, minute));
+}
+
+export function toArgentinaTimeString(dateUtc: Date): string {
+  const argDate = new Date(dateUtc.getTime() - 3 * 60 * 60 * 1000);
+  const year = argDate.getUTCFullYear();
+  const month = String(argDate.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(argDate.getUTCDate()).padStart(2, "0");
+  const hours = String(argDate.getUTCHours()).padStart(2, "0");
+  const minutes = String(argDate.getUTCMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+export function timeAgo(dateUtc: Date, nowUtc: Date = new Date()): string {
+  const diffMs = nowUtc.getTime() - dateUtc.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 60) {
+    return `hace ${diffMins}m`;
+  } else if (diffHours < 24) {
+    const mins = diffMins % 60;
+    return mins > 0 ? `hace ${diffHours}h ${mins}m` : `hace ${diffHours}h`;
+  } else {
+    return `hace ${diffDays}d`;
+  }
+}
+
+export function getTimeRangeMs(range: string): number {
+  switch (range) {
+    case "6h":
+      return 6 * 60 * 60 * 1000;
+    case "12h":
+      return 12 * 60 * 60 * 1000;
+    case "24h":
+      return 24 * 60 * 60 * 1000;
+    case "48h":
+      return 48 * 60 * 60 * 1000;
+    case "7d":
+      return 7 * 24 * 60 * 60 * 1000;
+    default:
+      return 24 * 60 * 60 * 1000;
+  }
+}
+
+export function getDaysForApi(range: string): number {
+  switch (range) {
+    case "6h":
+    case "12h":
+    case "24h":
+      return 1;
+    case "48h":
+      return 2;
+    case "7d":
+      return 5;
+    default:
+      return 1;
+  }
+}
+
+export function getMaxDaysForHistorical(): number {
+  return 5;
+}
+
+export function filterByTimeRange(features: any[], range: string): any[] {
+  const nowUtc = new Date();
+  const rangeMs = getTimeRangeMs(range);
+  const cutoffTime = nowUtc.getTime() - rangeMs;
+
+  return features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    return dateUtc.getTime() >= cutoffTime;
+  });
+}
