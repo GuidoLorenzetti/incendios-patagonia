@@ -83,7 +83,37 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
 
     updateLayer();
 
+    let updateTimeout: NodeJS.Timeout | null = null;
+    const debouncedUpdate = () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      updateTimeout = setTimeout(() => {
+        updateLayer();
+      }, 50);
+    };
+
+    const handleZoom = () => {
+      debouncedUpdate();
+    };
+
+    const handleMove = () => {
+      debouncedUpdate();
+    };
+
+    map.on("zoom", handleZoom);
+    map.on("move", handleMove);
+    map.on("zoomstart", handleZoom);
+    map.on("movestart", handleMove);
+
     return () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      map.off("zoom", handleZoom);
+      map.off("move", handleMove);
+      map.off("zoomstart", handleZoom);
+      map.off("movestart", handleMove);
       if (heatLayerRef.current) {
         map.removeLayer(heatLayerRef.current);
         heatLayerRef.current = null;
