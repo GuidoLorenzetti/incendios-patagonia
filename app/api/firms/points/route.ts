@@ -67,7 +67,7 @@ async function fetchSource(
   bbox: string,
   dayRange: string
 ): Promise<{ type: "FeatureCollection"; features: any[] }> {
-  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/${bbox}/${dayRange}`;
+  const url = `https://firms2.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/${bbox}/${dayRange}`;
   
   try {
     const controller = new AbortController();

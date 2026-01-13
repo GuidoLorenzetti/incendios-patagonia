@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   const dayRange = searchParams.get("days") ?? "2";
 
   const bbox = `${west},${south},${east},${north}`;
-  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/${bbox}/${dayRange}`;
+  const url = `https://firms2.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/${bbox}/${dayRange}`;
 
   const r = await fetch(url);
   const txt = await r.text();
