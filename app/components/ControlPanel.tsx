@@ -8,18 +8,22 @@ interface ControlPanelProps {
   showPoints: boolean;
   showHeatmap: boolean;
   showEvents: boolean;
+  showWeather: boolean;
   onPointsToggle: (visible: boolean) => void;
   onHeatmapToggle: (visible: boolean) => void;
   onEventsToggle: (visible: boolean) => void;
+  onWeatherToggle: (visible: boolean) => void;
 }
 
 export default function ControlPanel({
   showPoints,
   showHeatmap,
   showEvents,
+  showWeather,
   onPointsToggle,
   onHeatmapToggle,
   onEventsToggle,
+  onWeatherToggle,
 }: ControlPanelProps) {
   const map = useMap();
   const [isOpen, setIsOpen] = useState(false);
@@ -389,6 +393,40 @@ export default function ControlPanel({
                         <span style={{ fontSize: "14px", fontWeight: "500", color: "#202124" }}>Eventos</span>
                       </div>
                     </label>
+
+                    <label
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        padding: "12px",
+                        background: showWeather ? "#e3f2fd" : "#f8f9fa",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        border: showWeather ? "2px solid #1a73e8" : "2px solid transparent",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!showWeather) {
+                          e.currentTarget.style.background = "#f1f3f4";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!showWeather) {
+                          e.currentTarget.style.background = "#f8f9fa";
+                        }
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showWeather}
+                        onChange={(e) => onWeatherToggle(e.target.checked)}
+                        style={{ marginRight: "12px", width: "20px", height: "20px", cursor: "pointer" }}
+                      />
+                      <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
+                        <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "#2196f3", marginRight: "12px" }} />
+                        <span style={{ fontSize: "14px", fontWeight: "500", color: "#202124" }}>Datos Meteorológicos</span>
+                      </div>
+                    </label>
                   </div>
                 </div>
 
@@ -512,6 +550,16 @@ export default function ControlPanel({
                     <li><span style={{ color: "#ff9800", fontWeight: "600" }}>Naranja →</span> Estable</li>
                     <li><span style={{ color: "#757575", fontWeight: "600" }}>Gris ○</span> Extinto</li>
                   </ul>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", marginBottom: "8px" }}>
+                <div style={{ width: "24px", height: "24px", borderRadius: "50%", background: "#2196f3", marginRight: "12px" }} />
+                <strong style={{ fontSize: "14px", color: "#202124" }}>Datos Meteorológicos</strong>
+              </div>
+              <p style={{ margin: 0, fontSize: "13px", color: "#666", marginLeft: "36px", lineHeight: "1.5" }}>
+                Muestra datos meteorológicos actuales: viento (flechas azules indican dirección y velocidad), temperatura (círculos de color), humedad y presión. Los datos se actualizan cada 10 minutos.
+              </p>
             </div>
 
             <div style={{ marginTop: "24px", padding: "12px", background: "#e3f2fd", borderRadius: "8px" }}>
