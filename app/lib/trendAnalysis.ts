@@ -190,7 +190,16 @@ function determineTrend(
   const frpRatio = frpTotalInRange > 0 ? frpRecent / frpTotalInRange : frpRecent > 0 ? 2 : 0;
   const combinedRatio = (recentRatio + frpRatio) / 2;
 
-  const expectedRecentRatio = isLongRange ? 0.1 : timeRange === "48h" ? 0.2 : timeRange === "24h" ? 0.25 : 0.5;
+  let expectedRecentRatio: number;
+  if (timeRange === "7d") {
+    expectedRecentRatio = 0.1;
+  } else if (timeRange === "48h") {
+    expectedRecentRatio = 0.2;
+  } else if (timeRange === "24h") {
+    expectedRecentRatio = 0.25;
+  } else {
+    expectedRecentRatio = 0.5;
+  }
 
   if (combinedRatio > expectedRecentRatio * 1.5) {
     const recentPercent = Math.round((countRecent / totalInRange) * 100);
