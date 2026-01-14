@@ -5,11 +5,9 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 interface WeatherPoint {
   lat: number;
   lon: number;
-  temp: number;
-  humidity: number;
   windSpeed: number;
   windDir: number;
-  pressure: number;
+  precipitation: number;
   timestamp: string;
 }
 
@@ -17,14 +15,12 @@ interface WeatherDataContextType {
   data: WeatherPoint[];
   loading: boolean;
   lastUpdate: Date | null;
-  refresh: (bounds?: { north: number; south: number; east: number; west: number }) => Promise<void>;
 }
 
 const WeatherDataContext = createContext<WeatherDataContextType>({
   data: [],
   loading: true,
   lastUpdate: null,
-  refresh: async () => {},
 });
 
 export function WeatherDataProvider({ children }: { children: ReactNode }) {
@@ -35,10 +31,10 @@ export function WeatherDataProvider({ children }: { children: ReactNode }) {
   const fetchData = useCallback(async (bounds?: { north: number; south: number; east: number; west: number }) => {
     try {
       const mapBounds = bounds || {
-        west: -71.9,
-        south: -43.4,
-        east: -70.5,
-        north: -42.0,
+        west: -72.08705644882193,
+        south: -43.30965832411127,
+        east: -70.93122786797457,
+        north: -41.78337582518408,
       };
 
       const response = await fetch(
@@ -64,29 +60,10 @@ export function WeatherDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     fetchData();
-
-    const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        fetchData();
-      }
-    }, 600000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        fetchData();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
   }, [fetchData]);
 
   return (
-    <WeatherDataContext.Provider value={{ data, loading, lastUpdate, refresh: fetchData }}>
+    <WeatherDataContext.Provider value={{ data, loading, lastUpdate }}>
       {children}
     </WeatherDataContext.Provider>
   );

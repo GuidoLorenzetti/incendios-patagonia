@@ -8,6 +8,8 @@ import { TimeRange } from "./MapControls";
 import { toArgentinaTimeString, timeAgo, filterByTimeRange } from "../lib/time";
 import { analyzeTrends } from "../lib/trendAnalysis";
 import { useFireData } from "./FireDataContext";
+import { useWeatherData } from "./WeatherDataContext";
+import { interpolateWind, interpolateValue } from "../lib/weatherInterpolation";
 
 interface FireFeature {
   type: "Feature";
@@ -38,6 +40,7 @@ interface FireEventsLayerProps {
 
 export default function FireEventsLayer({ visible, timeRange, onEventsChange }: FireEventsLayerProps) {
   const { data } = useFireData();
+  const { data: weatherData } = useWeatherData();
 
   const events = useMemo(() => {
     const filteredByRange = filterByTimeRange(data.features, timeRange);
@@ -48,7 +51,19 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
     const eventsWithNames = eventsWithTrends.map((event) => {
       const [lat, lon] = event.centroid;
       const placeName = findNearestPlace(lat, lon, 50);
-      return { ...event, placeName };
+      
+      let windSpeed: number | undefined;
+      let windDir: number | undefined;
+      let precipitation: number | undefined;
+      
+      if (weatherData.length > 0) {
+        const wind = interpolateWind(weatherData, lat, lon);
+        windSpeed = wind.speed;
+        windDir = wind.dir;
+        precipitation = interpolateValue(weatherData, lat, lon, "precipitation");
+      }
+      
+      return { ...event, placeName, windSpeed, windDir, precipitation };
     });
 
     const placeNameGroups: Record<string, string[]> = {};
@@ -77,7 +92,7 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
     });
 
     return eventsWithNumberedNames;
-  }, [data, timeRange]);
+  }, [data, timeRange, weatherData]);
 
   useEffect(() => {
     if (onEventsChange) {
@@ -122,26 +137,19 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
                   {trendIcon} {event.trend}
                 </span>
               )}
-              <br />
-              <br />
-              <strong>Detecciones ({timeRange}):</strong> {event.count}
-              {event.count24h !== undefined && event.historicalCount !== undefined && (
+              {event.trendReason && (
                 <>
                   <br />
-                  <strong>Detecciones últimas {timeRange}:</strong> {event.count24h}
-                  <br />
-                  <strong>Detecciones ({timeRange} anteriores):</strong> {event.historicalCount}
+                  <em style={{ fontSize: "11px", color: "#666", display: "block", marginTop: "4px" }}>
+                    {event.trendReason}
+                  </em>
                 </>
               )}
-              {event.frp24h !== undefined && event.frp24h_48h !== undefined && (
-                <>
-                  <br />
-                  <br />
-                  <strong>FRP últimas {timeRange}:</strong> {event.frp24h.toFixed(1)}
-                  <br />
-                  <strong>FRP ({timeRange} anteriores):</strong> {event.frp24h_48h.toFixed(1)}
-                </>
-              )}
+              <br />
+              <br />
+              <strong>Resumen del evento:</strong>
+              <br />
+              <strong>Total de detecciones:</strong> {event.count}
               <br />
               <strong>FRP total:</strong> {event.frpSum.toFixed(1)}
               <br />
@@ -150,6 +158,42 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
               <strong>Última detección:</strong> {toArgentinaTimeString(new Date(event.lastSeenUtcMs))} (UTC-3)
               <br />
               <strong>Hace:</strong> {timeAgo(new Date(event.lastSeenUtcMs))}
+              {event.count24h !== undefined && event.historicalCount !== undefined && (
+                <>
+                  <br />
+                  <br />
+                  <strong style={{ color: "#1976d2" }}>Análisis de actividad:</strong>
+                  <br />
+                  <strong>Total en {timeRange}:</strong> {event.historicalCount} detecciones
+                  {event.frp24h_48h !== undefined && (
+                    <> (FRP: {event.frp24h_48h.toFixed(1)})</>
+                  )}
+                  <br />
+                  <strong>Últimas 6 horas:</strong> {event.count24h} detecciones
+                  {event.frp24h !== undefined && (
+                    <> (FRP: {event.frp24h.toFixed(1)})</>
+                  )}
+                </>
+              )}
+              {(event.windSpeed !== undefined || event.precipitation !== undefined) && (
+                <>
+                  <br />
+                  <br />
+                  <strong style={{ color: "#1976d2" }}>Condiciones Meteorológicas:</strong>
+                  {event.windSpeed !== undefined && event.windDir !== undefined && (
+                    <>
+                      <br />
+                      <strong>Viento:</strong> {event.windSpeed.toFixed(1)} m/s, {event.windDir.toFixed(0)}°
+                    </>
+                  )}
+                  {event.precipitation !== undefined && (
+                    <>
+                      <br />
+                      <strong>Precipitación:</strong> {event.precipitation > 0 ? `${event.precipitation.toFixed(1)} mm/h` : "Sin lluvia"}
+                    </>
+                  )}
+                </>
+              )}
               <br />
               <br />
               <em style={{ fontSize: "11px", color: "#666" }}>

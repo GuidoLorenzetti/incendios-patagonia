@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 
+export const revalidate = 300;
+
 function csvToGeoJSON(csvText: string) {
   const lines = csvText.trim().split("\n");
   if (lines.length < 2) return { type: "FeatureCollection", features: [] };
@@ -48,7 +50,9 @@ export async function GET(req: NextRequest) {
   const bbox = `${west},${south},${east},${north}`;
   const url = `https://firms2.modaps.eosdis.nasa.gov/api/area/csv/${key}/${source}/${bbox}/${dayRange}`;
 
-  const r = await fetch(url);
+  const r = await fetch(url, {
+    next: { revalidate: 300 },
+  });
   const txt = await r.text();
 
   if (!r.ok) return new Response(txt || `FIRMS HTTP ${r.status}`, { status: r.status });

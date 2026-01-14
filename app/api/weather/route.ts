@@ -1,133 +1,105 @@
 import { NextRequest } from "next/server";
 
+export const revalidate = 300;
+
 interface WeatherPoint {
   lat: number;
   lon: number;
-  temp: number;
-  humidity: number;
   windSpeed: number;
   windDir: number;
-  pressure: number;
+  precipitation: number;
   timestamp: string;
 }
 
 export async function GET(req: NextRequest) {
+  const apiKey = process.env.OPENWEATHER_API_KEY || "4c3820051b17220d8876becbff65990a";
+  
   const { searchParams } = new URL(req.url);
   const bounds = {
-    west: parseFloat(searchParams.get("west") ?? "-71.9"),
-    south: parseFloat(searchParams.get("south") ?? "-43.4"),
-    east: parseFloat(searchParams.get("east") ?? "-70.5"),
-    north: parseFloat(searchParams.get("north") ?? "-42.0"),
+    west: parseFloat(searchParams.get("west") ?? "-72.08705644882193"),
+    south: parseFloat(searchParams.get("south") ?? "-43.30965832411127"),
+    east: parseFloat(searchParams.get("east") ?? "-70.93122786797457"),
+    north: parseFloat(searchParams.get("north") ?? "-41.78337582518408"),
   };
 
-  const gridSize = 3;
+  const gridSize = 5;
   const latStep = (bounds.north - bounds.south) / gridSize;
   const lonStep = (bounds.east - bounds.west) / gridSize;
 
-  const latitudes: number[] = [];
-  const longitudes: number[] = [];
+  const coordinates: Array<{ lat: number; lon: number }> = [];
 
   for (let i = 0; i <= gridSize; i++) {
     for (let j = 0; j <= gridSize; j++) {
-      latitudes.push(bounds.south + i * latStep);
-      longitudes.push(bounds.west + j * lonStep);
+      coordinates.push({
+        lat: bounds.south + i * latStep,
+        lon: bounds.west + j * lonStep,
+      });
     }
   }
 
-  const latParam = latitudes.join(",");
-  const lonParam = longitudes.join(",");
+  console.log(`[Weather API] Requesting weather for ${coordinates.length} points using OpenWeatherMap`);
 
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latParam}&longitude=${lonParam}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure&timezone=auto`;
+  const fetchWeatherPoint = async (coord: { lat: number; lon: number }): Promise<WeatherPoint | null> => {
+    try {
+      const url = `https://api.openweathermap.org/data/2.5/weather?lat=${coord.lat}&lon=${coord.lon}&appid=${apiKey}&units=metric`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(url, {
+        signal: controller.signal,
+        next: { revalidate: 300 },
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+
+      if (data.cod !== 200 || !data.main || !data.coord) {
+        return null;
+      }
+
+      const rain = data.rain?.["1h"] ?? data.rain?.["3h"] ?? 0;
+      const snow = data.snow?.["1h"] ?? data.snow?.["3h"] ?? 0;
+      const precipitation = rain + snow;
+
+      return {
+        lat: data.coord.lat,
+        lon: data.coord.lon,
+        windSpeed: data.wind?.speed ?? 0,
+        windDir: data.wind?.deg ?? 0,
+        precipitation: precipitation,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return null;
+    }
+  };
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      next: { revalidate: 600 },
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return Response.json(
-        { error: `Open-Meteo API error: ${response.status}`, points: [] },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-
-    if (data.error) {
-      return Response.json(
-        { error: `Open-Meteo error: ${data.reason || data.error}`, points: [] },
-        { status: 400 }
-      );
-    }
-
-    if (!data || typeof data !== "object") {
-      return Response.json({ points: [] });
-    }
-
-    const weatherPoints: WeatherPoint[] = [];
-
-    const latArray = Array.isArray(data.latitude) ? data.latitude : [data.latitude];
-    const lonArray = Array.isArray(data.longitude) ? data.longitude : [data.longitude];
-    const tempArray = Array.isArray(data.current?.temperature_2m) ? data.current.temperature_2m : [data.current?.temperature_2m];
-    const humidityArray = Array.isArray(data.current?.relative_humidity_2m) ? data.current.relative_humidity_2m : [data.current?.relative_humidity_2m];
-    const windSpeedArray = Array.isArray(data.current?.wind_speed_10m) ? data.current.wind_speed_10m : [data.current?.wind_speed_10m];
-    const windDirArray = Array.isArray(data.current?.wind_direction_10m) ? data.current.wind_direction_10m : [data.current?.wind_direction_10m];
-    const pressureArray = Array.isArray(data.current?.surface_pressure) ? data.current.surface_pressure : [data.current?.surface_pressure];
-
-    const count = Math.min(
-      latArray.length,
-      lonArray.length,
-      tempArray.length,
-      humidityArray.length,
-      windSpeedArray.length,
-      windDirArray.length,
-      pressureArray.length
+    const results = await Promise.allSettled(
+      coordinates.map(coord => fetchWeatherPoint(coord))
     );
 
-    for (let i = 0; i < count; i++) {
-      const lat = latArray[i];
-      const lon = lonArray[i];
-      const temp = tempArray[i];
+    const weatherPoints: WeatherPoint[] = [];
+    let successCount = 0;
 
-      if (
-        lat !== undefined &&
-        lon !== undefined &&
-        temp !== undefined &&
-        !isNaN(lat) &&
-        !isNaN(lon) &&
-        !isNaN(temp) &&
-        isFinite(lat) &&
-        isFinite(lon) &&
-        isFinite(temp)
-      ) {
-        weatherPoints.push({
-          lat,
-          lon,
-          temp,
-          humidity: humidityArray[i] ?? 0,
-          windSpeed: windSpeedArray[i] ?? 0,
-          windDir: windDirArray[i] ?? 0,
-          pressure: pressureArray[i] ?? 0,
-          timestamp: new Date().toISOString(),
-        });
+    results.forEach((result) => {
+      if (result.status === "fulfilled" && result.value !== null) {
+        weatherPoints.push(result.value);
+        successCount++;
       }
-    }
+    });
+
+    console.log(`[Weather API] Successfully fetched ${successCount}/${coordinates.length} points`);
 
     return Response.json({ points: weatherPoints });
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      return Response.json(
-        { error: "Request timeout", points: [] },
-        { status: 408 }
-      );
-    }
+    console.error(`[Weather API] Exception:`, error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return Response.json(
       { error: errorMessage, points: [] },

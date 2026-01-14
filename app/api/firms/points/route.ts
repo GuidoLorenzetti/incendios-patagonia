@@ -6,7 +6,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 180000;
+const CACHE_TTL_MS = 300000;
 
 function getCacheKey(bbox: string, sources: string[], dayRange: string): string {
   return `${bbox}|${sources.join(",")}|${dayRange}`;
@@ -75,6 +75,7 @@ async function fetchSource(
     
     const r = await fetch(url, {
       signal: controller.signal,
+      next: { revalidate: 300 },
     });
     clearTimeout(timeoutId);
     

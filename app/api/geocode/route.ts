@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 
+export const revalidate = 300;
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const lat = searchParams.get("lat");
@@ -21,6 +23,7 @@ export async function GET(req: NextRequest) {
           "User-Agent": "FireWatch App",
         },
         signal: controller.signal,
+        next: { revalidate: 300 },
       });
 
       clearTimeout(timeoutId);

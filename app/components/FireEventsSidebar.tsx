@@ -256,6 +256,23 @@ export default function FireEventsSidebar({ events }: FireEventsSidebarProps) {
                   <div>FRP: {event.frpSum.toFixed(1)}</div>
                   <div>Última: {toArgentinaTimeString(new Date(event.lastSeenUtcMs))}</div>
                   <div>Hace: {timeAgo(new Date(event.lastSeenUtcMs))}</div>
+                  {(event.windSpeed !== undefined || event.precipitation !== undefined) && (
+                    <>
+                      <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px solid #e8eaed" }}>
+                        <div style={{ fontSize: "11px", fontWeight: "600", color: "#1976d2", marginBottom: "4px" }}>Meteorología:</div>
+                        {event.windSpeed !== undefined && event.windDir !== undefined && (
+                          <div style={{ fontSize: "11px", color: "#666" }}>
+                            Viento: {event.windSpeed.toFixed(1)} m/s, {event.windDir.toFixed(0)}°
+                          </div>
+                        )}
+                        {event.precipitation !== undefined && (
+                          <div style={{ fontSize: "11px", color: "#666" }}>
+                            Precipitación: {event.precipitation > 0 ? `${event.precipitation.toFixed(1)} mm/h` : "Sin lluvia"}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );

@@ -18,10 +18,14 @@ export interface FireEvent {
   lastSeenUtcMs: number;
   placeName?: string;
   trend?: "creciente" | "decreciente" | "estable" | "extinto";
+  trendReason?: string;
   historicalCount?: number;
   count24h?: number;
   frp24h?: number;
   frp24h_48h?: number;
+  windSpeed?: number;
+  windDir?: number;
+  precipitation?: number;
 }
 
 const EARTH_RADIUS_M = 6371000;
