@@ -13,7 +13,6 @@ import MapControls, { TimeRange } from "./MapControls";
 import { FireDataProvider } from "./FireDataContext";
 import { WeatherDataProvider } from "./WeatherDataContext";
 import { FireEvent } from "../lib/clustering";
-import WeatherLayer from "./WeatherLayer";
 import WeatherIndicators from "./WeatherIndicators";
 
 delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl;
@@ -41,7 +40,6 @@ export default function FireMap() {
   const [showPoints, setShowPoints] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
-  const [showWeather, setShowWeather] = useState(true);
   const [events, setEvents] = useState<FireEvent[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
   const [lastDetection, setLastDetection] = useState<Date | null>(null);
@@ -66,16 +64,13 @@ export default function FireMap() {
               showPoints={showPoints}
               showHeatmap={showHeatmap}
               showEvents={showEvents}
-              showWeather={showWeather}
               onPointsToggle={setShowPoints}
               onHeatmapToggle={setShowHeatmap}
               onEventsToggle={setShowEvents}
-              onWeatherToggle={setShowWeather}
             />
             <FirePointsLayer visible={showPoints} timeRange={timeRange} onLastDetectionChange={setLastDetection} />
             <FireHeatLayer visible={showHeatmap} timeRange={timeRange} />
             <FireEventsLayer visible={showEvents} timeRange={timeRange} onEventsChange={setEvents} />
-            <WeatherLayer visible={showWeather} />
           </MapContainer>
           <WeatherIndicators />
         </div>
