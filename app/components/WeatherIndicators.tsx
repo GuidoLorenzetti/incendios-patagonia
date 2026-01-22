@@ -1,8 +1,19 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useWeatherData } from "./WeatherDataContext";
 
 export default function WeatherIndicators() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
   const { data, loading } = useWeatherData();
 
   if (loading || data.length === 0) {
@@ -26,25 +37,27 @@ export default function WeatherIndicators() {
     <div
       style={{
         position: "absolute",
-        bottom: "20px",
-        right: "20px",
+        bottom: isMobile ? "10px" : "20px",
+        right: isMobile ? "10px" : "20px",
+        left: isMobile ? "auto" : "auto",
         background: "white",
-        borderRadius: "12px",
+        borderRadius: isMobile ? "8px" : "12px",
         boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        padding: "12px",
+        padding: isMobile ? "10px" : "12px",
         zIndex: 1000,
-        minWidth: "180px",
+        minWidth: isMobile ? "140px" : "180px",
+        maxWidth: isMobile ? "calc(50% - 20px)" : "auto",
         border: "1px solid #e8eaed",
       }}
     >
-      <div style={{ marginBottom: "10px", fontSize: "13px", fontWeight: "600", color: "#202124", borderBottom: "1px solid #e8eaed", paddingBottom: "6px" }}>
+      <div style={{ marginBottom: isMobile ? "8px" : "10px", fontSize: isMobile ? "11px" : "13px", fontWeight: "600", color: "#202124", borderBottom: "1px solid #e8eaed", paddingBottom: isMobile ? "4px" : "6px" }}>
         Meteorología
       </div>
 
-      <div style={{ marginBottom: "10px" }}>
+      <div style={{ marginBottom: isMobile ? "8px" : "10px" }}>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ width: "20px", height: "20px", marginRight: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="18" height="18" style={{ transform: `rotate(${avgWindDir - 90}deg)` }}>
+          <div style={{ width: isMobile ? "16px" : "20px", height: isMobile ? "16px" : "20px", marginRight: isMobile ? "6px" : "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width={isMobile ? "14" : "18"} height={isMobile ? "14" : "18"} style={{ transform: `rotate(${avgWindDir - 90}deg)` }}>
               <defs>
                 <marker id={`wind-arrow-${Date.now()}`} markerWidth="7" markerHeight="7" refX="6" refY="2.5" orient="auto">
                   <polygon points="0 0, 7 2.5, 0 5" fill="rgba(33, 150, 243, 0.9)" />
@@ -54,8 +67,8 @@ export default function WeatherIndicators() {
             </svg>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: "12px", fontWeight: "500", color: "#202124" }}>Viento</div>
-            <div style={{ fontSize: "11px", color: "#666" }}>
+            <div style={{ fontSize: isMobile ? "10px" : "12px", fontWeight: "500", color: "#202124" }}>Viento</div>
+            <div style={{ fontSize: isMobile ? "9px" : "11px", color: "#666" }}>
               {avgWindSpeed.toFixed(1)} m/s {getWindDirectionName(avgWindDir)}
             </div>
           </div>
@@ -64,8 +77,8 @@ export default function WeatherIndicators() {
 
       <div>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ width: "20px", height: "20px", marginRight: "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="18" height="18" viewBox="0 0 20 20">
+          <div style={{ width: isMobile ? "16px" : "20px", height: isMobile ? "16px" : "20px", marginRight: isMobile ? "6px" : "8px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width={isMobile ? "14" : "18"} height={isMobile ? "14" : "18"} viewBox="0 0 20 20">
               <path
                 d="M10 2 L12 8 L18 8 L13 12 L15 18 L10 14 L5 18 L7 12 L2 8 L8 8 Z"
                 fill={maxPrecipitation > 0 ? "rgba(33, 150, 243, 0.8)" : "rgba(200, 200, 200, 0.5)"}
@@ -73,8 +86,8 @@ export default function WeatherIndicators() {
             </svg>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: "12px", fontWeight: "500", color: "#202124" }}>Precipitación</div>
-            <div style={{ fontSize: "11px", color: "#666" }}>
+            <div style={{ fontSize: isMobile ? "10px" : "12px", fontWeight: "500", color: "#202124" }}>Precipitación</div>
+            <div style={{ fontSize: isMobile ? "9px" : "11px", color: "#666" }}>
               {maxPrecipitation > 0 ? `${maxPrecipitation.toFixed(1)} mm/h` : "Sin lluvia"}
             </div>
           </div>

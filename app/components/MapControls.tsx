@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useFireData } from "./FireDataContext";
-import { filterByTimeRange } from "../lib/time";
+import { filterByPreviousPeriod } from "../lib/time";
 
 export type TimeRange = "6h" | "12h" | "24h" | "48h" | "7d";
 
@@ -41,7 +41,8 @@ export default function MapControls({
   }, []);
 
   const rangesWithData = allRanges.filter((range) => {
-    const filtered = filterByTimeRange(data.features, range);
+    if (range === "6h") return false;
+    const filtered = filterByPreviousPeriod(data.features, range);
     return filtered.length > 0;
   });
 
@@ -82,20 +83,20 @@ export default function MapControls({
     <div
       style={{
         position: "absolute",
-        top: isMobile ? "10px" : "10px",
-        left: isMobile ? "10px" : "50%",
-        right: isMobile ? "10px" : "auto",
+        top: isMobile ? "8px" : "10px",
+        left: isMobile ? "8px" : "50%",
+        right: isMobile ? "8px" : "auto",
         transform: isMobile ? "none" : "translateX(-50%)",
         background: "white",
-        padding: isMobile ? "8px 12px" : "12px 16px",
+        padding: isMobile ? "6px 10px" : "12px 16px",
         borderRadius: "8px",
         boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
         zIndex: 1000,
         display: "flex",
         flexDirection: isMobile ? "column" : "row",
         alignItems: isMobile ? "stretch" : "center",
-        gap: isMobile ? "8px" : "16px",
-        maxWidth: isMobile ? "calc(100% - 20px)" : "auto",
+        gap: isMobile ? "6px" : "16px",
+        maxWidth: isMobile ? "calc(100% - 16px)" : "auto",
       }}
     >
       {rangesWithData.length > 0 && (
@@ -105,16 +106,16 @@ export default function MapControls({
               key={range}
               onClick={() => onTimeRangeChange(range)}
               style={{
-                padding: isMobile ? "6px 8px" : "6px 12px",
+                padding: isMobile ? "5px 8px" : "6px 12px",
                 border: "1px solid #e8eaed",
                 borderRadius: "4px",
                 background: timeRange === range ? "#ff9800" : "white",
                 color: timeRange === range ? "white" : "#202124",
                 cursor: "pointer",
-                fontSize: isMobile ? "11px" : "13px",
+                fontSize: isMobile ? "10px" : "13px",
                 fontWeight: timeRange === range ? "500" : "400",
                 flex: isMobile ? "1 1 auto" : "none",
-                minWidth: isMobile ? "60px" : "auto",
+                minWidth: isMobile ? "55px" : "auto",
               }}
             >
               {getRangeLabel(range)}
@@ -124,13 +125,13 @@ export default function MapControls({
             onClick={handleRefresh}
             disabled={isRefreshing}
             style={{
-              padding: isMobile ? "6px 8px" : "6px 12px",
+              padding: isMobile ? "5px 8px" : "6px 12px",
               border: "1px solid #e8eaed",
               borderRadius: "4px",
               background: isRefreshing ? "#f1f3f4" : "white",
               color: isRefreshing ? "#999" : "#202124",
               cursor: isRefreshing ? "not-allowed" : "pointer",
-              fontSize: isMobile ? "11px" : "13px",
+              fontSize: isMobile ? "10px" : "13px",
               fontWeight: "500",
               display: "flex",
               alignItems: "center",
@@ -143,23 +144,22 @@ export default function MapControls({
         </div>
       )}
 
-      <div style={{ 
-        fontSize: isMobile ? "11px" : "13px", 
-        color: "#666", 
-        borderLeft: isMobile ? "none" : "1px solid #e8eaed", 
-        borderTop: isMobile ? "1px solid #e8eaed" : "none",
-        paddingLeft: isMobile ? "0" : "16px",
-        paddingTop: isMobile ? "8px" : "0",
-        marginTop: isMobile ? "8px" : "0",
-      }}>
-        <div>
-          <strong>Última detección:</strong>{" "}
-          {lastDetection ? formatLastDetection() : <span style={{ color: "#999" }}>Sin detecciones</span>}
+      {!isMobile && (
+        <div style={{ 
+          fontSize: "13px", 
+          color: "#666", 
+          borderLeft: "1px solid #e8eaed", 
+          paddingLeft: "16px",
+        }}>
+          <div>
+            <strong>Última detección:</strong>{" "}
+            {lastDetection ? formatLastDetection() : <span style={{ color: "#999" }}>Sin detecciones</span>}
+          </div>
+          <div>
+            <strong>Rango:</strong> {getRangeLabel(timeRange)}
+          </div>
         </div>
-        <div>
-          <strong>Rango:</strong> {getRangeLabel(timeRange)}
-        </div>
-      </div>
+      )}
     </div>
   );
 }

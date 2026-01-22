@@ -70,10 +70,57 @@ export function getMaxDaysForHistorical(): number {
   return 5;
 }
 
+export function getCurrentPeriodLabel(range: string): string {
+  switch (range) {
+    case "6h":
+      return "3h";
+    case "12h":
+      return "6h";
+    case "24h":
+      return "12h";
+    case "48h":
+      return "24h";
+    case "7d":
+      return "3.5d";
+    default:
+      return "12h";
+  }
+}
+
 export function filterByTimeRange(features: any[], range: string): any[] {
   const nowUtc = new Date();
   const rangeMs = getTimeRangeMs(range);
   const cutoffTime = nowUtc.getTime() - rangeMs;
+
+  return features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    return dateUtc.getTime() >= cutoffTime;
+  });
+}
+
+export function filterByPreviousPeriod(features: any[], range: string): any[] {
+  const nowUtc = new Date();
+  const rangeMs = getTimeRangeMs(range);
+  const halfRangeMs = rangeMs / 2;
+  const cutoffStart = nowUtc.getTime() - rangeMs;
+  const cutoffEnd = nowUtc.getTime() - halfRangeMs;
+
+  return features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    const timestamp = dateUtc.getTime();
+    return timestamp >= cutoffStart && timestamp < cutoffEnd;
+  });
+}
+
+export function filterByCurrentPeriod(features: any[], range: string): any[] {
+  const nowUtc = new Date();
+  const rangeMs = getTimeRangeMs(range);
+  const halfRangeMs = rangeMs / 2;
+  const cutoffTime = nowUtc.getTime() - halfRangeMs;
 
   return features.filter((feature) => {
     const props = feature.properties;

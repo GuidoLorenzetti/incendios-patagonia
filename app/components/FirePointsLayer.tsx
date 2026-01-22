@@ -3,42 +3,20 @@
 import { useEffect, useMemo } from "react";
 import { CircleMarker, Popup } from "react-leaflet";
 import { TimeRange } from "./MapControls";
-import { parseFirmsUtc, toArgentinaTimeString, timeAgo, filterByTimeRange } from "../lib/time";
+import { parseFirmsUtc, toArgentinaTimeString, timeAgo, filterByPreviousPeriod } from "../lib/time";
 import { useFireData } from "./FireDataContext";
 
 
 interface FirePointsLayerProps {
   visible: boolean;
   timeRange: TimeRange;
-  onLastDetectionChange?: (date: Date | null) => void;
 }
 
-export default function FirePointsLayer({ visible, timeRange, onLastDetectionChange }: FirePointsLayerProps) {
+export default function FirePointsLayer({ visible, timeRange }: FirePointsLayerProps) {
   const { data } = useFireData();
 
-  useEffect(() => {
-    const filtered = filterByTimeRange(data.features, timeRange);
-
-    if (onLastDetectionChange && filtered.length > 0) {
-      const timestamps = filtered
-        .map((f) => {
-          if (f.properties.acq_date && f.properties.acq_time) {
-            return parseFirmsUtc(f.properties.acq_date, f.properties.acq_time);
-          }
-          return null;
-        })
-        .filter((d): d is Date => d !== null);
-      if (timestamps.length > 0) {
-        const latest = new Date(Math.max(...timestamps.map((d) => d.getTime())));
-        onLastDetectionChange(latest);
-      }
-    } else if (onLastDetectionChange) {
-      onLastDetectionChange(null);
-    }
-  }, [data, timeRange, onLastDetectionChange]);
-
   const filteredFeatures = useMemo(() => {
-    return filterByTimeRange(data.features, timeRange);
+    return filterByPreviousPeriod(data.features, timeRange);
   }, [data, timeRange]);
 
   const markers = useMemo(() => {

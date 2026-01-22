@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 import { TimeRange } from "./MapControls";
-import { filterByTimeRange } from "../lib/time";
+import { filterByPreviousPeriod } from "../lib/time";
 import { useFireData } from "./FireDataContext";
 
 interface FireFeature {
@@ -65,7 +65,7 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
     if (!heatLayerFn) return;
 
     const updateLayer = () => {
-      const filtered = filterByTimeRange(data.features, timeRange);
+      const filtered = filterByPreviousPeriod(data.features, timeRange);
       
       if (filtered.length === 0) {
         if (heatLayerRef.current) {

@@ -5,7 +5,7 @@ import { CircleMarker, Popup } from "react-leaflet";
 import { buildEvents, FireEvent } from "../lib/clustering";
 import { findNearestPlace } from "../lib/places";
 import { TimeRange } from "./MapControls";
-import { toArgentinaTimeString, timeAgo, filterByTimeRange } from "../lib/time";
+import { toArgentinaTimeString, timeAgo, filterByPreviousPeriod, getCurrentPeriodLabel } from "../lib/time";
 import { analyzeTrends } from "../lib/trendAnalysis";
 import { useFireData } from "./FireDataContext";
 import { useWeatherData } from "./WeatherDataContext";
@@ -43,7 +43,7 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
   const { data: weatherData } = useWeatherData();
 
   const events = useMemo(() => {
-    const filteredByRange = filterByTimeRange(data.features, timeRange);
+    const filteredByRange = filterByPreviousPeriod(data.features, timeRange);
     const eventsList = buildEvents(filteredByRange);
     
     const eventsWithTrends = analyzeTrends(eventsList, data.features, timeRange);
@@ -164,12 +164,12 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
                   <br />
                   <strong style={{ color: "#1976d2" }}>Análisis de actividad:</strong>
                   <br />
-                  <strong>Total en {timeRange}:</strong> {event.historicalCount} detecciones
+                  <strong>Período anterior ({timeRange}):</strong> {event.historicalCount} detecciones
                   {event.frp24h_48h !== undefined && (
                     <> (FRP: {event.frp24h_48h.toFixed(1)})</>
                   )}
                   <br />
-                  <strong>Últimas 6 horas:</strong> {event.count24h} detecciones
+                  <strong>Período actual ({getCurrentPeriodLabel(timeRange)}):</strong> {event.count24h} detecciones
                   {event.frp24h !== undefined && (
                     <> (FRP: {event.frp24h.toFixed(1)})</>
                   )}

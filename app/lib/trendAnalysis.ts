@@ -1,5 +1,5 @@
 import { FireEvent, haversineMeters } from "./clustering";
-import { parseFirmsUtc, getTimeRangeMs } from "./time";
+import { parseFirmsUtc, getTimeRangeMs, filterByCurrentPeriod, getCurrentPeriodLabel } from "./time";
 import { TimeRange } from "../components/MapControls";
 
 export interface TrendAnalysis {
@@ -16,55 +16,29 @@ export function analyzeTrends(
   allFeatures: any[],
   timeRange: TimeRange
 ): FireEvent[] {
-  const nowUtc = new Date();
-  const rangeMs = getTimeRangeMs(timeRange);
-  const cutoffSelectedRange = nowUtc.getTime() - rangeMs;
-  const recentHoursMs = 6 * 60 * 60 * 1000;
-  const cutoffRecent = nowUtc.getTime() - recentHoursMs;
-
-  const featuresInSelectedRange = allFeatures.filter((f) => {
-    if (!f.properties.acq_date || !f.properties.acq_time) return false;
-    const dateUtc = parseFirmsUtc(f.properties.acq_date, f.properties.acq_time);
-    return dateUtc.getTime() >= cutoffSelectedRange;
-  });
-
-  const featuresRecent = allFeatures.filter((f) => {
-    if (!f.properties.acq_date || !f.properties.acq_time) return false;
-    const dateUtc = parseFirmsUtc(f.properties.acq_date, f.properties.acq_time);
-    return dateUtc.getTime() >= cutoffRecent;
-  });
+  const featuresCurrent = filterByCurrentPeriod(allFeatures, timeRange);
 
   return events.map((event) => {
     const [lat, lon] = event.centroid;
     const eventRadius = 1500;
 
-    const pointsInSelectedRange = featuresInSelectedRange.filter((f) => {
+    const pointsCurrent = featuresCurrent.filter((f) => {
       const [fLon, fLat] = f.geometry.coordinates;
       const dist = haversineMeters(lat, lon, fLat, fLon);
       return dist <= eventRadius;
     });
 
-    const pointsRecent = featuresRecent.filter((f) => {
-      const [fLon, fLat] = f.geometry.coordinates;
-      const dist = haversineMeters(lat, lon, fLat, fLon);
-      return dist <= eventRadius;
-    });
+    const totalInRange = event.count;
+    const countRecent = pointsCurrent.length;
 
-    const totalInRange = pointsInSelectedRange.length;
-    const countRecent = pointsRecent.length;
-
-    const frpTotalInRange = pointsInSelectedRange.reduce((sum, f) => {
+    const frpTotalInRange = event.frpSum;
+    const frpRecent = pointsCurrent.reduce((sum, f) => {
       const frp = f.properties.frp ? Number(f.properties.frp) : 0;
       return sum + frp;
     }, 0);
 
-    const frpRecent = pointsRecent.reduce((sum, f) => {
-      const frp = f.properties.frp ? Number(f.properties.frp) : 0;
-      return sum + frp;
-    }, 0);
-
-    const latestTimestampRecent = pointsRecent.length > 0
-      ? Math.max(...pointsRecent.map((f) => {
+    const latestTimestampRecent = pointsCurrent.length > 0
+      ? Math.max(...pointsCurrent.map((f) => {
           const dateUtc = parseFirmsUtc(f.properties.acq_date!, f.properties.acq_time!);
           return dateUtc.getTime();
         }))
@@ -108,11 +82,12 @@ function determineTrend(
   const isLongRange = timeRange === "7d" || timeRange === "48h";
   const isShortRange = timeRange === "6h" || timeRange === "12h" || timeRange === "24h";
   const hasVerySignificantActivity = totalInRange >= 50 || frpTotalInRange >= 500 || totalEventCount >= 100;
+  const currentPeriodLabel = getCurrentPeriodLabel(timeRange);
 
   if (hasNoActivityInRange && hasNoRecentActivity) {
     return {
       trend: "estable",
-      reason: `Sin actividad en ${timeRange} ni en las últimas 6 horas.`,
+      reason: `Sin actividad en el período anterior (${timeRange}) ni en el período actual (${currentPeriodLabel}).`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -123,7 +98,7 @@ function determineTrend(
   if (hasNoActivityInRange && countRecent > 0) {
     return {
       trend: "creciente",
-      reason: `Nueva actividad reciente: ${countRecent} detecciones en las últimas 6 horas (FRP: ${frpRecent.toFixed(1)}). Sin actividad previa en ${timeRange}.`,
+      reason: `Nueva actividad en período actual: ${countRecent} detecciones en ${currentPeriodLabel} (FRP: ${frpRecent.toFixed(1)}). Sin actividad en período anterior (${timeRange}).`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -134,7 +109,7 @@ function determineTrend(
   if (totalInRange === 0) {
     return {
       trend: "creciente",
-      reason: `${countRecent} detecciones en las últimas 6 horas (FRP: ${frpRecent.toFixed(1)}). Sin actividad previa en ${timeRange}.`,
+      reason: `${countRecent} detecciones en período actual (${currentPeriodLabel}, FRP: ${frpRecent.toFixed(1)}). Sin actividad en período anterior (${timeRange}).`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -146,7 +121,7 @@ function determineTrend(
     if (isLongRange && hasSignificantActivityInRange) {
       return {
         trend: "extinto",
-        reason: `Sin actividad en las últimas 6 horas. Total en ${timeRange}: ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
+        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
         currentPeriodCount: countRecent,
         previousPeriodCount: totalInRange,
         currentPeriodFrp: frpRecent,
@@ -157,7 +132,7 @@ function determineTrend(
     if (hasVerySignificantActivity && !isShortRange) {
       return {
         trend: "extinto",
-        reason: `Sin actividad en las últimas 6 horas. Total en ${timeRange}: ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
+        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
         currentPeriodCount: countRecent,
         previousPeriodCount: totalInRange,
         currentPeriodFrp: frpRecent,
@@ -168,7 +143,7 @@ function determineTrend(
     if (isShortRange) {
       return {
         trend: "decreciente",
-        reason: `Sin actividad reciente. Total en ${timeRange}: ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}). La actividad fue más temprana en este período.`,
+        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
         currentPeriodCount: countRecent,
         previousPeriodCount: totalInRange,
         currentPeriodFrp: frpRecent,
@@ -178,7 +153,7 @@ function determineTrend(
     
     return {
       trend: "decreciente",
-      reason: `Sin actividad reciente. Total en ${timeRange}: ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
+      reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -192,11 +167,11 @@ function determineTrend(
 
   let expectedRecentRatio: number;
   if (timeRange === "7d") {
-    expectedRecentRatio = 0.1;
+    expectedRecentRatio = 0.5;
   } else if (timeRange === "48h") {
-    expectedRecentRatio = 0.2;
+    expectedRecentRatio = 0.5;
   } else if (timeRange === "24h") {
-    expectedRecentRatio = 0.25;
+    expectedRecentRatio = 0.5;
   } else {
     expectedRecentRatio = 0.5;
   }
@@ -205,7 +180,7 @@ function determineTrend(
     const recentPercent = Math.round((countRecent / totalInRange) * 100);
     return {
       trend: "creciente",
-      reason: `Actividad reciente alta: ${countRecent} detecciones en últimas 6h (${recentPercent}% del total en ${timeRange}). FRP reciente: ${frpRecent.toFixed(1)} vs total: ${frpTotalInRange.toFixed(1)}.`,
+      reason: `Actividad aumentando: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). FRP: ${frpRecent.toFixed(1)} vs ${frpTotalInRange.toFixed(1)}.`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -217,7 +192,7 @@ function determineTrend(
     const recentPercent = totalInRange > 0 ? Math.round((countRecent / totalInRange) * 100) : 0;
     return {
       trend: "decreciente",
-      reason: `Actividad reciente baja: ${countRecent} detecciones en últimas 6h (${recentPercent}% del total en ${timeRange}). Total: ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
+      reason: `Actividad disminuyendo: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
       currentPeriodCount: countRecent,
       previousPeriodCount: totalInRange,
       currentPeriodFrp: frpRecent,
@@ -228,7 +203,7 @@ function determineTrend(
   const recentPercent = totalInRange > 0 ? Math.round((countRecent / totalInRange) * 100) : 0;
   return {
     trend: "estable",
-    reason: `Actividad constante: ${countRecent} detecciones en últimas 6h (${recentPercent}% del total en ${timeRange}). Total: ${totalInRange} detecciones. FRP reciente: ${frpRecent.toFixed(1)}, total: ${frpTotalInRange.toFixed(1)}.`,
+    reason: `Actividad constante: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). Período anterior (${timeRange}): ${totalInRange} detecciones. FRP actual: ${frpRecent.toFixed(1)}, anterior: ${frpTotalInRange.toFixed(1)}.`,
     currentPeriodCount: countRecent,
     previousPeriodCount: totalInRange,
     currentPeriodFrp: frpRecent,
