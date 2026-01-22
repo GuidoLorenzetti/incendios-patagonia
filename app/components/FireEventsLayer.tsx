@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo } from "react";
 import { CircleMarker, Popup } from "react-leaflet";
-import { buildEvents, FireEvent } from "../lib/clustering";
+import { buildEvents, FireEvent, haversineMeters } from "../lib/clustering";
 import { findNearestPlace } from "../lib/places";
-import { TimeRange } from "./MapControls";
-import { toArgentinaTimeString, timeAgo, filterByPreviousPeriod, getCurrentPeriodLabel } from "../lib/time";
+import { toArgentinaTimeString, timeAgo, filterByTimeWindow, filterByTimeWindowWithExtension, parseFirmsUtc } from "../lib/time";
 import { analyzeTrends } from "../lib/trendAnalysis";
 import { useFireData } from "./FireDataContext";
 import { useWeatherData } from "./WeatherDataContext";
@@ -34,21 +33,78 @@ interface FireGeoJSON {
 
 interface FireEventsLayerProps {
   visible: boolean;
-  timeRange: TimeRange;
+  selectedTime: Date | null;
+  windowHours: number;
   onEventsChange?: (events: FireEvent[]) => void;
 }
 
-export default function FireEventsLayer({ visible, timeRange, onEventsChange }: FireEventsLayerProps) {
+export default function FireEventsLayer({ visible, selectedTime, windowHours, onEventsChange }: FireEventsLayerProps) {
   const { data } = useFireData();
   const { data: weatherData } = useWeatherData();
 
   const events = useMemo(() => {
-    const filteredByRange = filterByPreviousPeriod(data.features, timeRange);
-    const eventsList = buildEvents(filteredByRange);
+    if (!selectedTime) return [];
     
-    const eventsWithTrends = analyzeTrends(eventsList, data.features, timeRange);
+    const selectedTimeMs = selectedTime.getTime();
+    // Usar extensión de 6h para considerar que las detecciones "cubren" 6h en cada sentido
+    const filteredByTime = filterByTimeWindowWithExtension(data.features, selectedTimeMs, windowHours, 6);
+    const eventsList = buildEvents(filteredByTime);
     
-    const eventsWithNames = eventsWithTrends.map((event) => {
+    // Comparar con detecciones que estaban activas exactamente 12 horas antes
+    const comparisonHours = 12;
+    const comparisonTime = selectedTimeMs - (comparisonHours * 60 * 60 * 1000);
+    // Obtener features que estaban activas en ese momento exacto (con extensión de 6h)
+    const previousWindowFeatures = filterByTimeWindowWithExtension(
+      data.features, 
+      comparisonTime, 
+      windowHours, 
+      6
+    );
+    
+    // Obtener features de las últimas 3 ventanas para verificar actividad reciente (con extensión)
+    const recentWindowHours = windowHours * 3;
+    const recentWindowStart = selectedTimeMs - (recentWindowHours * 60 * 60 * 1000);
+    const allRecentFeatures = filterByTimeWindowWithExtension(
+      data.features,
+      selectedTimeMs,
+      recentWindowHours,
+      6
+    );
+    
+    const eventsWithTrends = analyzeTrends(
+      eventsList, 
+      filteredByTime, 
+      previousWindowFeatures, 
+      windowHours,
+      selectedTime,
+      allRecentFeatures
+    );
+    
+    // Filtrar eventos: solo mostrar aquellos con actividad en las últimas ventanas (9h para ventana de 3h)
+    // Esto evita mostrar eventos antiguos que ya no son relevantes
+    // Verificar la última detección real del evento en todas las features, no solo en la ventana actual
+    const maxAgeForDisplayHours = recentWindowHours; // Usar la misma ventana que para análisis reciente
+    const filteredEvents = eventsWithTrends.filter((event) => {
+      // Buscar la última detección real de este evento en todas las features disponibles
+      const [lat, lon] = event.centroid;
+      const eventRadius = 1500;
+      const eventFeatures = allRecentFeatures.filter((f) => {
+        const [fLon, fLat] = f.geometry.coordinates;
+        const dist = haversineMeters(lat, lon, fLat, fLon);
+        return dist <= eventRadius;
+      });
+      
+      if (eventFeatures.length === 0) {
+        // Si no hay features en las ventanas recientes, verificar última detección
+        const hoursSinceLastSeen = (selectedTimeMs - event.lastSeenUtcMs) / (60 * 60 * 1000);
+        return hoursSinceLastSeen <= maxAgeForDisplayHours;
+      }
+      
+      // Si hay features en las ventanas recientes, siempre mostrar
+      return true;
+    });
+    
+    const eventsWithNames = filteredEvents.map((event) => {
       const [lat, lon] = event.centroid;
       const placeName = findNearestPlace(lat, lon, 50);
       
@@ -92,7 +148,7 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
     });
 
     return eventsWithNumberedNames;
-  }, [data, timeRange, weatherData]);
+  }, [data, selectedTime, windowHours, weatherData]);
 
   useEffect(() => {
     if (onEventsChange) {
@@ -162,16 +218,16 @@ export default function FireEventsLayer({ visible, timeRange, onEventsChange }: 
                 <>
                   <br />
                   <br />
-                  <strong style={{ color: "#1976d2" }}>Análisis de actividad:</strong>
+                  <strong style={{ color: "#1976d2" }}>Comparación de ventanas:</strong>
                   <br />
-                  <strong>Período anterior ({timeRange}):</strong> {event.historicalCount} detecciones
-                  {event.frp24h_48h !== undefined && (
-                    <> (FRP: {event.frp24h_48h.toFixed(1)})</>
-                  )}
-                  <br />
-                  <strong>Período actual ({getCurrentPeriodLabel(timeRange)}):</strong> {event.count24h} detecciones
+                  <strong>Ventana actual ({windowHours}h):</strong> {event.count24h} detecciones
                   {event.frp24h !== undefined && (
                     <> (FRP: {event.frp24h.toFixed(1)})</>
+                  )}
+                  <br />
+                  <strong>Ventana anterior ({windowHours}h):</strong> {event.historicalCount} detecciones
+                  {event.frp24h_48h !== undefined && (
+                    <> (FRP: {event.frp24h_48h.toFixed(1)})</>
                   )}
                 </>
               )}

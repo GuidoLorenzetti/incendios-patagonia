@@ -1,23 +1,24 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { CircleMarker, Popup } from "react-leaflet";
-import { TimeRange } from "./MapControls";
-import { parseFirmsUtc, toArgentinaTimeString, timeAgo, filterByPreviousPeriod } from "../lib/time";
+import { parseFirmsUtc, toArgentinaTimeString, timeAgo, filterByTimeWindowWithExtension } from "../lib/time";
 import { useFireData } from "./FireDataContext";
-
 
 interface FirePointsLayerProps {
   visible: boolean;
-  timeRange: TimeRange;
+  selectedTime: Date | null;
+  windowHours: number;
 }
 
-export default function FirePointsLayer({ visible, timeRange }: FirePointsLayerProps) {
+export default function FirePointsLayer({ visible, selectedTime, windowHours }: FirePointsLayerProps) {
   const { data } = useFireData();
 
   const filteredFeatures = useMemo(() => {
-    return filterByPreviousPeriod(data.features, timeRange);
-  }, [data, timeRange]);
+    if (!selectedTime) return [];
+    // Usar extensión de 6h para considerar que las detecciones "cubren" 6h en cada sentido
+    return filterByTimeWindowWithExtension(data.features, selectedTime.getTime(), windowHours, 6);
+  }, [data, selectedTime, windowHours]);
 
   const markers = useMemo(() => {
     if (!visible) return null;

@@ -129,3 +129,61 @@ export function filterByCurrentPeriod(features: any[], range: string): any[] {
     return dateUtc.getTime() >= cutoffTime;
   });
 }
+
+export function filterByTimestamp(features: any[], maxTimestamp: number): any[] {
+  return features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    return dateUtc.getTime() <= maxTimestamp;
+  });
+}
+
+export function filterByTimeWindow(features: any[], endTime: number, windowHours: number): any[] {
+  const startTime = endTime - (windowHours * 60 * 60 * 1000);
+  return features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    const timestamp = dateUtc.getTime();
+    return timestamp >= startTime && timestamp <= endTime;
+  });
+}
+
+/**
+ * Filtra features por ventana de tiempo, extendiendo cada detección 6h en cada sentido.
+ * Esto significa que una detección "cubre" 6h antes y 6h después de su timestamp.
+ * Si una detección está dentro de la ventana extendida, se incluye.
+ */
+export function filterByTimeWindowWithExtension(features: any[], endTime: number, windowHours: number, extensionHours: number = 6): any[] {
+  const windowStart = endTime - (windowHours * 60 * 60 * 1000);
+  const extensionMs = extensionHours * 60 * 60 * 1000;
+  
+  // Extender la ventana de búsqueda para incluir detecciones que puedan "cubrir" nuestro período
+  const searchStart = windowStart - extensionMs;
+  const searchEnd = endTime + extensionMs;
+  
+  // Primero obtener todas las features en el rango extendido
+  const featuresInExtendedRange = features.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    const timestamp = dateUtc.getTime();
+    return timestamp >= searchStart && timestamp <= searchEnd;
+  });
+  
+  // Luego filtrar aquellas cuya "cobertura extendida" intersecta con nuestra ventana
+  return featuresInExtendedRange.filter((feature) => {
+    const props = feature.properties;
+    if (!props.acq_date || !props.acq_time) return false;
+    const dateUtc = parseFirmsUtc(props.acq_date, props.acq_time);
+    const timestamp = dateUtc.getTime();
+    
+    // La detección cubre desde 6h antes hasta 6h después
+    const detectionStart = timestamp - extensionMs;
+    const detectionEnd = timestamp + extensionMs;
+    
+    // Si la cobertura de la detección intersecta con nuestra ventana, incluirla
+    return detectionEnd >= windowStart && detectionStart <= endTime;
+  });
+}

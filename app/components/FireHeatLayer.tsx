@@ -3,8 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
-import { TimeRange } from "./MapControls";
-import { filterByPreviousPeriod } from "../lib/time";
+import { filterByTimeWindowWithExtension } from "../lib/time";
 import { useFireData } from "./FireDataContext";
 
 interface FireFeature {
@@ -26,7 +25,8 @@ interface FireGeoJSON {
 
 interface FireHeatLayerProps {
   visible: boolean;
-  timeRange: TimeRange;
+  selectedTime: Date | null;
+  windowHours: number;
 }
 
 interface HeatLayerOptions {
@@ -37,7 +37,7 @@ interface HeatLayerOptions {
   gradient?: Record<number, string>;
 }
 
-export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps) {
+export default function FireHeatLayer({ visible, selectedTime, windowHours }: FireHeatLayerProps) {
   const map = useMap();
   const heatLayerRef = useRef<L.Layer | null>(null);
   const { data } = useFireData();
@@ -65,7 +65,15 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
     if (!heatLayerFn) return;
 
     const updateLayer = () => {
-      const filtered = filterByPreviousPeriod(data.features, timeRange);
+      if (!selectedTime) {
+        if (heatLayerRef.current) {
+          map.removeLayer(heatLayerRef.current);
+          heatLayerRef.current = null;
+        }
+        return;
+      }
+      // Usar extensión de 6h para considerar que las detecciones "cubren" 6h en cada sentido
+      const filtered = filterByTimeWindowWithExtension(data.features, selectedTime.getTime(), windowHours, 6);
       
       if (filtered.length === 0) {
         if (heatLayerRef.current) {
@@ -173,7 +181,7 @@ export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps
         heatLayerRef.current = null;
       }
     };
-  }, [map, visible, timeRange, data]);
+  }, [map, visible, selectedTime, windowHours, data]);
 
   return null;
 }

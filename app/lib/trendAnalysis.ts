@@ -1,6 +1,8 @@
 import { FireEvent, haversineMeters } from "./clustering";
-import { parseFirmsUtc, getTimeRangeMs, filterByCurrentPeriod, getCurrentPeriodLabel } from "./time";
-import { TimeRange } from "../components/MapControls";
+import { parseFirmsUtc } from "./time";
+
+const DETECTION_EXTENSION_HOURS = 6;
+const DETECTION_EXTENSION_MS = DETECTION_EXTENSION_HOURS * 60 * 60 * 1000;
 
 export interface TrendAnalysis {
   trend: "creciente" | "decreciente" | "estable" | "extinto";
@@ -13,201 +15,215 @@ export interface TrendAnalysis {
 
 export function analyzeTrends(
   events: FireEvent[],
-  allFeatures: any[],
-  timeRange: TimeRange
+  currentWindowFeatures: any[],
+  previousWindowFeatures: any[],
+  windowHours: number,
+  selectedTime: Date,
+  allRecentFeatures: any[]
 ): FireEvent[] {
-  const featuresCurrent = filterByCurrentPeriod(allFeatures, timeRange);
+  const selectedTimeMs = selectedTime.getTime();
+  const maxAgeForActiveHours = 24; // Eventos sin actividad en las últimas 24h se consideran extintos
+  const maxAgeForActiveMs = maxAgeForActiveHours * 60 * 60 * 1000;
+  const comparisonHours = 12; // Comparar siempre con 12 horas atrás
+  const recentWindowHours = windowHours * 3; // Considerar últimas 3 ventanas (9h para ventana de 3h)
+  const recentWindowStart = selectedTimeMs - (recentWindowHours * 60 * 60 * 1000);
 
   return events.map((event) => {
     const [lat, lon] = event.centroid;
     const eventRadius = 1500;
 
-    const pointsCurrent = featuresCurrent.filter((f) => {
+    // Filtrar puntos por distancia al evento en el tiempo actual
+    const pointsCurrent = currentWindowFeatures.filter((f) => {
       const [fLon, fLat] = f.geometry.coordinates;
       const dist = haversineMeters(lat, lon, fLat, fLon);
       return dist <= eventRadius;
     });
 
-    const totalInRange = event.count;
-    const countRecent = pointsCurrent.length;
+    // Filtrar puntos por distancia al evento en el tiempo de comparación (12 horas antes)
+    const pointsPrevious = previousWindowFeatures.filter((f) => {
+      const [fLon, fLat] = f.geometry.coordinates;
+      const dist = haversineMeters(lat, lon, fLat, fLon);
+      return dist <= eventRadius;
+    });
 
-    const frpTotalInRange = event.frpSum;
-    const frpRecent = pointsCurrent.reduce((sum, f) => {
+    // Verificar actividad en el tiempo de comparación (12 horas antes)
+    // Usar las mismas features que pointsPrevious pero contar para verificar si había actividad
+    const pointsInComparisonWindow = pointsPrevious;
+
+    const countCurrent = pointsCurrent.length;
+    const countPrevious = pointsPrevious.length;
+    const countInComparisonWindow = pointsInComparisonWindow.length;
+
+    const frpCurrent = pointsCurrent.reduce((sum, f) => {
       const frp = f.properties.frp ? Number(f.properties.frp) : 0;
       return sum + frp;
     }, 0);
 
-    const latestTimestampRecent = pointsCurrent.length > 0
+    const frpPrevious = pointsPrevious.reduce((sum, f) => {
+      const frp = f.properties.frp ? Number(f.properties.frp) : 0;
+      return sum + frp;
+    }, 0);
+
+    const latestTimestampCurrent = pointsCurrent.length > 0
       ? Math.max(...pointsCurrent.map((f) => {
           const dateUtc = parseFirmsUtc(f.properties.acq_date!, f.properties.acq_time!);
           return dateUtc.getTime();
         }))
       : 0;
 
-    const lastSeenUtcMs = Math.max(event.lastSeenUtcMs, latestTimestampRecent);
+    const lastSeenUtcMs = Math.max(event.lastSeenUtcMs, latestTimestampCurrent);
+    const hoursSinceLastSeen = (selectedTimeMs - lastSeenUtcMs) / (60 * 60 * 1000);
+
+    // Si hay actividad en la ventana actual, el evento está activo
+    // Pero si no hay actividad en las ventanas anteriores y han pasado más de 24h desde la última detección,
+    // podría ser un evento antiguo que ya no es relevante
+    // Sin embargo, si tiene actividad actual, siempre se muestra
+    
+    // Si NO hay actividad en la ventana actual Y no hay actividad en la ventana de comparación
+    // Y han pasado más de 24h, marcar como extinto
+    if (countCurrent === 0 && countInComparisonWindow === 0 && hoursSinceLastSeen > maxAgeForActiveHours) {
+      return {
+        ...event,
+        trend: "extinto",
+        trendReason: `Sin actividad en las últimas ${recentWindowHours}h. Última detección hace ${Math.round(hoursSinceLastSeen)}h.`,
+        historicalCount: countPrevious,
+        count24h: countCurrent,
+        frp24h: frpCurrent,
+        frp24h_48h: frpPrevious,
+        lastSeenUtcMs,
+      };
+    }
+
+    // Si hay actividad actual, siempre analizar tendencias normalmente
+    // Si no hay actividad actual pero hay en ventanas anteriores, también analizar
 
     const analysis = determineTrend(
-      totalInRange,
-      countRecent,
-      frpTotalInRange,
-      frpRecent,
+      countCurrent,
+      countPrevious,
+      frpCurrent,
+      frpPrevious,
       event.count,
-      timeRange
+      windowHours,
+      countInComparisonWindow
     );
 
     return {
       ...event,
       trend: analysis.trend,
       trendReason: analysis.reason,
-      historicalCount: totalInRange,
-      count24h: countRecent,
-      frp24h: frpRecent,
-      frp24h_48h: frpTotalInRange,
+      historicalCount: countPrevious,
+      count24h: countCurrent,
+      frp24h: frpCurrent,
+      frp24h_48h: frpPrevious,
       lastSeenUtcMs,
     };
   });
 }
 
 function determineTrend(
-  totalInRange: number,
-  countRecent: number,
-  frpTotalInRange: number,
-  frpRecent: number,
+  countCurrent: number,
+  countPrevious: number,
+  frpCurrent: number,
+  frpPrevious: number,
   totalEventCount: number,
-  timeRange: TimeRange
+  windowHours: number,
+  countInComparisonWindow: number
 ): TrendAnalysis {
-  const hasNoRecentActivity = countRecent === 0 && frpRecent === 0;
-  const hasNoActivityInRange = totalInRange === 0 && frpTotalInRange === 0;
-  const hasSignificantActivityInRange = totalInRange >= 10 || frpTotalInRange >= 100 || totalEventCount >= 50;
-  const isLongRange = timeRange === "7d" || timeRange === "48h";
-  const isShortRange = timeRange === "6h" || timeRange === "12h" || timeRange === "24h";
-  const hasVerySignificantActivity = totalInRange >= 50 || frpTotalInRange >= 500 || totalEventCount >= 100;
-  const currentPeriodLabel = getCurrentPeriodLabel(timeRange);
+  const hasNoCurrentActivity = countCurrent === 0 && frpCurrent === 0;
+  const hasNoPreviousActivity = countPrevious === 0 && frpPrevious === 0;
+  const hasSignificantPreviousActivity = countPrevious >= 10 || frpPrevious >= 100 || totalEventCount >= 50;
+  const hasVerySignificantPreviousActivity = countPrevious >= 50 || frpPrevious >= 500 || totalEventCount >= 100;
+  const isLongWindow = windowHours >= 24;
 
-  if (hasNoActivityInRange && hasNoRecentActivity) {
+  if (hasNoCurrentActivity && hasNoPreviousActivity) {
     return {
       trend: "estable",
-      reason: `Sin actividad en el período anterior (${timeRange}) ni en el período actual (${currentPeriodLabel}).`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
+      reason: `Sin actividad en la ventana actual (${windowHours}h) ni hace 12 horas.`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
     };
   }
 
-  if (hasNoActivityInRange && countRecent > 0) {
+  if (hasNoPreviousActivity && countCurrent > 0) {
     return {
       trend: "creciente",
-      reason: `Nueva actividad en período actual: ${countRecent} detecciones en ${currentPeriodLabel} (FRP: ${frpRecent.toFixed(1)}). Sin actividad en período anterior (${timeRange}).`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
+      reason: `Nueva actividad: ${countCurrent} detecciones en ventana actual (${windowHours}h, FRP: ${frpCurrent.toFixed(1)}). Sin actividad hace 12 horas.`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
     };
   }
 
-  if (totalInRange === 0) {
-    return {
-      trend: "creciente",
-      reason: `${countRecent} detecciones en período actual (${currentPeriodLabel}, FRP: ${frpRecent.toFixed(1)}). Sin actividad en período anterior (${timeRange}).`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
-    };
-  }
-
-  if (hasNoRecentActivity && totalInRange > 0) {
-    if (isLongRange && hasSignificantActivityInRange) {
+  if (hasNoCurrentActivity && hasSignificantPreviousActivity) {
+    if (isLongWindow || hasVerySignificantPreviousActivity) {
       return {
         trend: "extinto",
-        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
-        currentPeriodCount: countRecent,
-        previousPeriodCount: totalInRange,
-        currentPeriodFrp: frpRecent,
-        previousPeriodFrp: frpTotalInRange,
+        reason: `Sin actividad en ventana actual (${windowHours}h). Hace 12 horas: ${countPrevious} detecciones (FRP: ${frpPrevious.toFixed(1)}).`,
+        currentPeriodCount: countCurrent,
+        previousPeriodCount: countPrevious,
+        currentPeriodFrp: frpCurrent,
+        previousPeriodFrp: frpPrevious,
       };
     }
-    
-    if (hasVerySignificantActivity && !isShortRange) {
-      return {
-        trend: "extinto",
-        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
-        currentPeriodCount: countRecent,
-        previousPeriodCount: totalInRange,
-        currentPeriodFrp: frpRecent,
-        previousPeriodFrp: frpTotalInRange,
-      };
-    }
-    
-    if (isShortRange) {
-      return {
-        trend: "decreciente",
-        reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
-        currentPeriodCount: countRecent,
-        previousPeriodCount: totalInRange,
-        currentPeriodFrp: frpRecent,
-        previousPeriodFrp: frpTotalInRange,
-      };
-    }
-    
     return {
       trend: "decreciente",
-      reason: `Sin actividad en período actual (${currentPeriodLabel}). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
+      reason: `Sin actividad en ventana actual (${windowHours}h). Hace 12 horas: ${countPrevious} detecciones (FRP: ${frpPrevious.toFixed(1)}).`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
     };
   }
 
-  const recentRatio = totalInRange > 0 ? countRecent / totalInRange : countRecent > 0 ? 2 : 0;
-  const frpRatio = frpTotalInRange > 0 ? frpRecent / frpTotalInRange : frpRecent > 0 ? 2 : 0;
-  const combinedRatio = (recentRatio + frpRatio) / 2;
-
-  let expectedRecentRatio: number;
-  if (timeRange === "7d") {
-    expectedRecentRatio = 0.5;
-  } else if (timeRange === "48h") {
-    expectedRecentRatio = 0.5;
-  } else if (timeRange === "24h") {
-    expectedRecentRatio = 0.5;
-  } else {
-    expectedRecentRatio = 0.5;
-  }
-
-  if (combinedRatio > expectedRecentRatio * 1.5) {
-    const recentPercent = Math.round((countRecent / totalInRange) * 100);
+  if (countPrevious === 0 && countCurrent > 0) {
     return {
       trend: "creciente",
-      reason: `Actividad aumentando: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). FRP: ${frpRecent.toFixed(1)} vs ${frpTotalInRange.toFixed(1)}.`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
+      reason: `${countCurrent} detecciones en ventana actual (${windowHours}h, FRP: ${frpCurrent.toFixed(1)}). Sin actividad hace 12 horas.`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
     };
   }
 
-  if (combinedRatio < expectedRecentRatio * 0.5 && hasSignificantActivityInRange) {
-    const recentPercent = totalInRange > 0 ? Math.round((countRecent / totalInRange) * 100) : 0;
+  const countRatio = countPrevious > 0 ? countCurrent / countPrevious : countCurrent > 0 ? 2 : 0;
+  const frpRatio = frpPrevious > 0 ? frpCurrent / frpPrevious : frpCurrent > 0 ? 2 : 0;
+  const combinedRatio = (countRatio + frpRatio) / 2;
+
+  if (combinedRatio > 1.3) {
+    const increasePercent = Math.round((combinedRatio - 1) * 100);
+    return {
+      trend: "creciente",
+      reason: `Aumento del ${increasePercent}%: ${countCurrent} detecciones ahora vs ${countPrevious} hace 12 horas. FRP: ${frpCurrent.toFixed(1)} vs ${frpPrevious.toFixed(1)}.`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
+    };
+  }
+
+  if (combinedRatio < 0.7 && hasSignificantPreviousActivity) {
+    const decreasePercent = Math.round((1 - combinedRatio) * 100);
     return {
       trend: "decreciente",
-      reason: `Actividad disminuyendo: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). Período anterior (${timeRange}): ${totalInRange} detecciones (FRP: ${frpTotalInRange.toFixed(1)}).`,
-      currentPeriodCount: countRecent,
-      previousPeriodCount: totalInRange,
-      currentPeriodFrp: frpRecent,
-      previousPeriodFrp: frpTotalInRange,
+      reason: `Reducción del ${decreasePercent}%: ${countCurrent} detecciones ahora vs ${countPrevious} hace 12 horas. FRP: ${frpCurrent.toFixed(1)} vs ${frpPrevious.toFixed(1)}.`,
+      currentPeriodCount: countCurrent,
+      previousPeriodCount: countPrevious,
+      currentPeriodFrp: frpCurrent,
+      previousPeriodFrp: frpPrevious,
     };
   }
 
-  const recentPercent = totalInRange > 0 ? Math.round((countRecent / totalInRange) * 100) : 0;
   return {
     trend: "estable",
-    reason: `Actividad constante: ${countRecent} detecciones en período actual (${currentPeriodLabel}, ${recentPercent}% del período anterior). Período anterior (${timeRange}): ${totalInRange} detecciones. FRP actual: ${frpRecent.toFixed(1)}, anterior: ${frpTotalInRange.toFixed(1)}.`,
-    currentPeriodCount: countRecent,
-    previousPeriodCount: totalInRange,
-    currentPeriodFrp: frpRecent,
-    previousPeriodFrp: frpTotalInRange,
+    reason: `Actividad similar: ${countCurrent} detecciones ahora vs ${countPrevious} hace 12 horas. FRP: ${frpCurrent.toFixed(1)} vs ${frpPrevious.toFixed(1)}.`,
+    currentPeriodCount: countCurrent,
+    previousPeriodCount: countPrevious,
+    currentPeriodFrp: frpCurrent,
+    previousPeriodFrp: frpPrevious,
   };
 }
 
