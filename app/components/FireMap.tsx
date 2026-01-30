@@ -9,11 +9,12 @@ import FirePointsLayer from "./FirePointsLayer";
 import FireEventsLayer from "./FireEventsLayer";
 import FireEventsSidebar from "./FireEventsSidebar";
 import ControlPanel from "./ControlPanel";
-import TimeSlider from "./TimeSlider";
-import { FireDataProvider } from "./FireDataContext";
+import MapControls, { TimeRange } from "./MapControls";
+import { FireDataProvider, useFireData } from "./FireDataContext";
 import { WeatherDataProvider } from "./WeatherDataContext";
 import { FireEvent } from "../lib/clustering";
 import WeatherIndicators from "./WeatherIndicators";
+import { filterByPreviousPeriod, parseFirmsUtc } from "../lib/time";
 
 delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -36,14 +37,42 @@ function MapBounds() {
   return null;
 }
 
+function LastDetectionCalculator({ timeRange, onLastDetectionChange }: { timeRange: TimeRange; onLastDetectionChange: (date: Date | null) => void }) {
+  const { data } = useFireData();
+
+  useEffect(() => {
+    const filtered = filterByPreviousPeriod(data.features, timeRange);
+
+    if (filtered.length > 0) {
+      const timestamps = filtered
+        .map((f) => {
+          if (f.properties.acq_date && f.properties.acq_time) {
+            return parseFirmsUtc(f.properties.acq_date, f.properties.acq_time);
+          }
+          return null;
+        })
+        .filter((d): d is Date => d !== null);
+      if (timestamps.length > 0) {
+        const latest = new Date(Math.max(...timestamps.map((d) => d.getTime())));
+        onLastDetectionChange(latest);
+      } else {
+        onLastDetectionChange(null);
+      }
+    } else {
+      onLastDetectionChange(null);
+    }
+  }, [data, timeRange, onLastDetectionChange]);
+
+  return null;
+}
 
 export default function FireMap() {
   const [showPoints, setShowPoints] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [events, setEvents] = useState<FireEvent[]>([]);
-  const [selectedTime, setSelectedTime] = useState<Date | null>(null);
-  const windowHours = 3;
+  const [timeRange, setTimeRange] = useState<TimeRange>("24h");
+  const [lastDetection, setLastDetection] = useState<Date | null>(null);
   const [viewportHeight, setViewportHeight] = useState<string>("100vh");
 
   useEffect(() => {
@@ -63,7 +92,7 @@ export default function FireMap() {
     updateHeight();
     window.addEventListener("resize", updateHeight);
     window.addEventListener("orientationchange", updateHeight);
-    
+
     return () => {
       window.removeEventListener("resize", updateHeight);
       window.removeEventListener("orientationchange", updateHeight);
@@ -73,6 +102,7 @@ export default function FireMap() {
   return (
     <FireDataProvider>
       <WeatherDataProvider>
+        <LastDetectionCalculator timeRange={timeRange} onLastDetectionChange={setLastDetection} />
         <div style={{ height: viewportHeight, width: "100%", position: "relative", overflow: "hidden" }}>
           <MapContainer
             center={[-42.5465, -71.5091]}
@@ -80,6 +110,11 @@ export default function FireMap() {
             style={{ height: "100%", width: "100%" }}
           >
             <MapBounds />
+            <MapControls
+              timeRange={timeRange}
+              onTimeRangeChange={setTimeRange}
+              lastDetection={lastDetection}
+            />
             <FireEventsSidebar events={events} />
             <ControlPanel
               showPoints={showPoints}
@@ -89,16 +124,10 @@ export default function FireMap() {
               onHeatmapToggle={setShowHeatmap}
               onEventsToggle={setShowEvents}
             />
-            <FirePointsLayer visible={showPoints} selectedTime={selectedTime} windowHours={windowHours} />
-            <FireHeatLayer visible={showHeatmap} selectedTime={selectedTime} windowHours={windowHours} />
-            <FireEventsLayer visible={showEvents} selectedTime={selectedTime} windowHours={windowHours} onEventsChange={setEvents} />
+            <FirePointsLayer visible={showPoints} timeRange={timeRange} />
+            <FireHeatLayer visible={showHeatmap} timeRange={timeRange} />
+            <FireEventsLayer visible={showEvents} timeRange={timeRange} onEventsChange={setEvents} />
           </MapContainer>
-          <TimeSlider 
-            selectedTime={selectedTime} 
-            onTimeChange={setSelectedTime} 
-            windowHours={windowHours}
-            maxTimeRangeHours={120} 
-          />
           <WeatherIndicators />
         </div>
       </WeatherDataProvider>

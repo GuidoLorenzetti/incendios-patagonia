@@ -145,10 +145,10 @@ export default function MapControls({
       )}
 
       {!isMobile && (
-        <div style={{ 
-          fontSize: "13px", 
-          color: "#666", 
-          borderLeft: "1px solid #e8eaed", 
+        <div style={{
+          fontSize: "13px",
+          color: "#666",
+          borderLeft: "1px solid #e8eaed",
           paddingLeft: "16px",
         }}>
           <div>

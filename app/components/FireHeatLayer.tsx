@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
-import { filterByTimeWindowWithExtension } from "../lib/time";
+import { TimeRange } from "./MapControls";
+import { filterByPreviousPeriod } from "../lib/time";
 import { useFireData } from "./FireDataContext";
 
 interface FireFeature {
@@ -25,8 +26,7 @@ interface FireGeoJSON {
 
 interface FireHeatLayerProps {
   visible: boolean;
-  selectedTime: Date | null;
-  windowHours: number;
+  timeRange: TimeRange;
 }
 
 interface HeatLayerOptions {
@@ -37,14 +37,14 @@ interface HeatLayerOptions {
   gradient?: Record<number, string>;
 }
 
-export default function FireHeatLayer({ visible, selectedTime, windowHours }: FireHeatLayerProps) {
+export default function FireHeatLayer({ visible, timeRange }: FireHeatLayerProps) {
   const map = useMap();
   const heatLayerRef = useRef<L.Layer | null>(null);
   const { data } = useFireData();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    
+
     if (!visible) {
       if (heatLayerRef.current) {
         map.removeLayer(heatLayerRef.current);
@@ -65,16 +65,8 @@ export default function FireHeatLayer({ visible, selectedTime, windowHours }: Fi
     if (!heatLayerFn) return;
 
     const updateLayer = () => {
-      if (!selectedTime) {
-        if (heatLayerRef.current) {
-          map.removeLayer(heatLayerRef.current);
-          heatLayerRef.current = null;
-        }
-        return;
-      }
-      // Usar extensión de 6h para considerar que las detecciones "cubren" 6h en cada sentido
-      const filtered = filterByTimeWindowWithExtension(data.features, selectedTime.getTime(), windowHours, 6);
-      
+      const filtered = filterByPreviousPeriod(data.features, timeRange);
+
       if (filtered.length === 0) {
         if (heatLayerRef.current) {
           map.removeLayer(heatLayerRef.current);
@@ -86,21 +78,21 @@ export default function FireHeatLayer({ visible, selectedTime, windowHours }: Fi
       const frpValues = filtered
         .map((f) => (f.properties.frp ? Number(f.properties.frp) : 0))
         .filter((v) => v > 0);
-      
+
       const maxFrp = frpValues.length > 0 ? Math.max(...frpValues) : 1;
       const minFrp = frpValues.length > 0 ? Math.min(...frpValues) : 0;
 
       const points: [number, number, number][] = filtered.map((feature) => {
         const [lon, lat] = feature.geometry.coordinates;
         const frp = feature.properties.frp ? Number(feature.properties.frp) : 0;
-        const normalizedFrp = maxFrp > minFrp 
+        const normalizedFrp = maxFrp > minFrp
           ? ((frp - minFrp) / (maxFrp - minFrp)) * 100 + 10
           : 10;
         return [lat, lon, Math.max(1, normalizedFrp)];
       });
 
       const currentZoom = map.getZoom();
-      
+
       const radius = Math.max(15, Math.min(40, 20 + (currentZoom - 9) * 3));
       const blur = Math.max(12, Math.min(25, 15 + (currentZoom - 9) * 2));
 
@@ -181,7 +173,7 @@ export default function FireHeatLayer({ visible, selectedTime, windowHours }: Fi
         heatLayerRef.current = null;
       }
     };
-  }, [map, visible, selectedTime, windowHours, data]);
+  }, [map, visible, timeRange, data]);
 
   return null;
 }

@@ -2,123 +2,46 @@
 
 import { useEffect, useMemo } from "react";
 import { CircleMarker, Popup } from "react-leaflet";
-import { buildEvents, FireEvent, haversineMeters } from "../lib/clustering";
+import { buildEvents, FireEvent } from "../lib/clustering";
 import { findNearestPlace } from "../lib/places";
-import { toArgentinaTimeString, timeAgo, filterByTimeWindow, filterByTimeWindowWithExtension, parseFirmsUtc } from "../lib/time";
+import { TimeRange } from "./MapControls";
+import { toArgentinaTimeString, timeAgo, filterByPreviousPeriod, getCurrentPeriodLabel } from "../lib/time";
 import { analyzeTrends } from "../lib/trendAnalysis";
 import { useFireData } from "./FireDataContext";
 import { useWeatherData } from "./WeatherDataContext";
 import { interpolateWind, interpolateValue } from "../lib/weatherInterpolation";
 
-interface FireFeature {
-  type: "Feature";
-  geometry: {
-    type: "Point";
-    coordinates: [number, number];
-  };
-  properties: {
-    confidence?: string;
-    frp?: string;
-    satellite?: string;
-    acq_date?: string;
-    acq_time?: string;
-    [key: string]: string | undefined;
-  };
-}
-
-interface FireGeoJSON {
-  type: "FeatureCollection";
-  features: FireFeature[];
-}
-
 interface FireEventsLayerProps {
   visible: boolean;
-  selectedTime: Date | null;
-  windowHours: number;
+  timeRange: TimeRange;
   onEventsChange?: (events: FireEvent[]) => void;
 }
 
-export default function FireEventsLayer({ visible, selectedTime, windowHours, onEventsChange }: FireEventsLayerProps) {
+export default function FireEventsLayer({ visible, timeRange, onEventsChange }: FireEventsLayerProps) {
   const { data } = useFireData();
   const { data: weatherData } = useWeatherData();
 
   const events = useMemo(() => {
-    if (!selectedTime) return [];
-    
-    const selectedTimeMs = selectedTime.getTime();
-    // Usar extensión de 6h para considerar que las detecciones "cubren" 6h en cada sentido
-    const filteredByTime = filterByTimeWindowWithExtension(data.features, selectedTimeMs, windowHours, 6);
-    const eventsList = buildEvents(filteredByTime);
-    
-    // Comparar con detecciones que estaban activas exactamente 12 horas antes
-    const comparisonHours = 12;
-    const comparisonTime = selectedTimeMs - (comparisonHours * 60 * 60 * 1000);
-    // Obtener features que estaban activas en ese momento exacto (con extensión de 6h)
-    const previousWindowFeatures = filterByTimeWindowWithExtension(
-      data.features, 
-      comparisonTime, 
-      windowHours, 
-      6
-    );
-    
-    // Obtener features de las últimas 3 ventanas para verificar actividad reciente (con extensión)
-    const recentWindowHours = windowHours * 3;
-    const recentWindowStart = selectedTimeMs - (recentWindowHours * 60 * 60 * 1000);
-    const allRecentFeatures = filterByTimeWindowWithExtension(
-      data.features,
-      selectedTimeMs,
-      recentWindowHours,
-      6
-    );
-    
-    const eventsWithTrends = analyzeTrends(
-      eventsList, 
-      filteredByTime, 
-      previousWindowFeatures, 
-      windowHours,
-      selectedTime,
-      allRecentFeatures
-    );
-    
-    // Filtrar eventos: solo mostrar aquellos con actividad en las últimas ventanas (9h para ventana de 3h)
-    // Esto evita mostrar eventos antiguos que ya no son relevantes
-    // Verificar la última detección real del evento en todas las features, no solo en la ventana actual
-    const maxAgeForDisplayHours = recentWindowHours; // Usar la misma ventana que para análisis reciente
-    const filteredEvents = eventsWithTrends.filter((event) => {
-      // Buscar la última detección real de este evento en todas las features disponibles
-      const [lat, lon] = event.centroid;
-      const eventRadius = 1500;
-      const eventFeatures = allRecentFeatures.filter((f) => {
-        const [fLon, fLat] = f.geometry.coordinates;
-        const dist = haversineMeters(lat, lon, fLat, fLon);
-        return dist <= eventRadius;
-      });
-      
-      if (eventFeatures.length === 0) {
-        // Si no hay features en las ventanas recientes, verificar última detección
-        const hoursSinceLastSeen = (selectedTimeMs - event.lastSeenUtcMs) / (60 * 60 * 1000);
-        return hoursSinceLastSeen <= maxAgeForDisplayHours;
-      }
-      
-      // Si hay features en las ventanas recientes, siempre mostrar
-      return true;
-    });
-    
-    const eventsWithNames = filteredEvents.map((event) => {
+    const filteredByRange = filterByPreviousPeriod(data.features, timeRange);
+    const eventsList = buildEvents(filteredByRange);
+
+    const eventsWithTrends = analyzeTrends(eventsList, data.features, timeRange);
+
+    const eventsWithNames = eventsWithTrends.map((event) => {
       const [lat, lon] = event.centroid;
       const placeName = findNearestPlace(lat, lon, 50);
-      
+
       let windSpeed: number | undefined;
       let windDir: number | undefined;
       let precipitation: number | undefined;
-      
+
       if (weatherData.length > 0) {
         const wind = interpolateWind(weatherData, lat, lon);
         windSpeed = wind.speed;
         windDir = wind.dir;
         precipitation = interpolateValue(weatherData, lat, lon, "precipitation");
       }
-      
+
       return { ...event, placeName, windSpeed, windDir, precipitation };
     });
 
@@ -135,7 +58,7 @@ export default function FireEventsLayer({ visible, selectedTime, windowHours, on
     const eventsWithNumberedNames = eventsWithNames.map((event) => {
       const baseName = event.placeName || "Lugar desconocido";
       const group = placeNameGroups[baseName];
-      
+
       if (group && group.length > 1) {
         if (!placeNameCounts[baseName]) {
           placeNameCounts[baseName] = 0;
@@ -143,19 +66,18 @@ export default function FireEventsLayer({ visible, selectedTime, windowHours, on
         placeNameCounts[baseName]++;
         return { ...event, placeName: `${baseName} #${placeNameCounts[baseName]}` };
       }
-      
+
       return event;
     });
 
     return eventsWithNumberedNames;
-  }, [data, selectedTime, windowHours, weatherData]);
+  }, [data, timeRange, weatherData]);
 
   useEffect(() => {
     if (onEventsChange) {
       onEventsChange(events);
     }
   }, [events, onEventsChange]);
-
 
   const markers = useMemo(() => {
     if (!visible) return null;
@@ -164,13 +86,13 @@ export default function FireEventsLayer({ visible, selectedTime, windowHours, on
       const radius = Math.max(8, Math.min(20, Math.sqrt(event.count) * 2));
       const [lat, lon] = event.centroid;
 
-      const trendColor = event.trend === "creciente" ? "#d32f2f" 
-        : event.trend === "decreciente" ? "#388e3c" 
-        : event.trend === "extinto" ? "#757575" 
+      const trendColor = event.trend === "creciente" ? "#d32f2f"
+        : event.trend === "decreciente" ? "#388e3c"
+        : event.trend === "extinto" ? "#757575"
         : "#ff9800";
-      const trendIcon = event.trend === "creciente" ? "↑" 
-        : event.trend === "decreciente" ? "↓" 
-        : event.trend === "extinto" ? "○" 
+      const trendIcon = event.trend === "creciente" ? "↑"
+        : event.trend === "decreciente" ? "↓"
+        : event.trend === "extinto" ? "○"
         : "→";
 
       return (
@@ -218,16 +140,16 @@ export default function FireEventsLayer({ visible, selectedTime, windowHours, on
                 <>
                   <br />
                   <br />
-                  <strong style={{ color: "#1976d2" }}>Comparación de ventanas:</strong>
+                  <strong style={{ color: "#1976d2" }}>Análisis de actividad:</strong>
                   <br />
-                  <strong>Ventana actual ({windowHours}h):</strong> {event.count24h} detecciones
-                  {event.frp24h !== undefined && (
-                    <> (FRP: {event.frp24h.toFixed(1)})</>
-                  )}
-                  <br />
-                  <strong>Ventana anterior ({windowHours}h):</strong> {event.historicalCount} detecciones
+                  <strong>Período anterior ({timeRange}):</strong> {event.historicalCount} detecciones
                   {event.frp24h_48h !== undefined && (
                     <> (FRP: {event.frp24h_48h.toFixed(1)})</>
+                  )}
+                  <br />
+                  <strong>Período actual ({getCurrentPeriodLabel(timeRange)}):</strong> {event.count24h} detecciones
+                  {event.frp24h !== undefined && (
+                    <> (FRP: {event.frp24h.toFixed(1)})</>
                   )}
                 </>
               )}
